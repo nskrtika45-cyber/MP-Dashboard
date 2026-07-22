@@ -116,6 +116,50 @@
   .publish-status.ok{background:#EAF6F3;color:var(--teal);}
   .publish-status.err{background:#FBEDE6;color:var(--brick);}
 
+  /* ---------- Admin: user management panel ---------- */
+  .hidden{display:none !important;}
+  .admin-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin-bottom:20px;}
+  .hint{color:var(--muted);font-size:12px;margin:0 0 14px;line-height:1.5;}
+  #adminUsersPanel table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  #adminUsersPanel th{text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:8px 10px;border-bottom:1px solid var(--border);}
+  #adminUsersPanel td{padding:10px;border-bottom:1px solid var(--border);vertical-align:middle;}
+  #adminUsersPanel td.email{font-weight:600;color:var(--ink);}
+  #adminUsersPanel select{padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Inter',sans-serif;font-size:13px;background:#fff;}
+  .save-btn{background:var(--navy);color:#fff;font-size:12px;font-weight:600;padding:7px 14px;border-radius:6px;border:none;cursor:pointer;}
+  .save-btn:disabled{opacity:.5;cursor:not-allowed;}
+  .save-btn.saved{background:var(--teal);}
+  .pending-badge{background:#FDEEE1;color:var(--brick);font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;text-transform:uppercase;}
+  .empty-row{color:var(--muted);text-align:center;padding:24px;font-size:13px;}
+  .add-row{display:flex;gap:10px;margin-top:6px;flex-wrap:wrap;}
+  .add-row input{flex:1;min-width:220px;padding:9px 12px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:'Inter',sans-serif;}
+  .add-row select{flex-shrink:0;padding:9px 10px;border:1px solid var(--border);border-radius:7px;}
+  .add-row .btn{flex-shrink:0;width:auto;}
+
+  /* ---------- Pending / waiting-for-approval screen ---------- */
+  .pending-screen{
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px;
+    background:linear-gradient(155deg,var(--navy) 0%,var(--navy-light) 100%);color:#fff;
+  }
+  .pending-inner{max-width:440px;text-align:center;}
+  .pending-inner .status-banner{
+    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:10px;
+    padding:20px;margin-top:20px;font-size:13.5px;line-height:1.6;text-align:left;
+  }
+  .pending-inner .status-banner b{color:var(--gold-light);}
+  .pending-inner .uid-box{
+    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:8px;
+    padding:10px 13px;font-family:monospace;font-size:12px;word-break:break-all;color:#E8D9AE;margin:16px 0 0;
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+  }
+  .pending-inner .uid-box button{flex-shrink:0;background:rgba(255,255,255,.15);border:none;color:#fff;font-size:11px;font-weight:600;
+    padding:6px 10px;border-radius:6px;cursor:pointer;font-family:'Inter',sans-serif;}
+  .pending-inner .btn-row-pending{display:flex;gap:10px;justify-content:center;margin-top:18px;}
+  .pending-inner .btn-row-pending button{
+    background:transparent;border:1px solid rgba(255,255,255,.3);color:#fff;font-size:12.5px;font-weight:600;
+    padding:9px 16px;border-radius:20px;cursor:pointer;font-family:'Inter',sans-serif;
+  }
+  .pending-inner .btn-row-pending button.primary{background:var(--gold);border-color:var(--gold);}
+
   /* ---------- Upload panel ---------- */
   .upload-card{
     background:var(--card);border:1px solid var(--border);border-radius:10px;
@@ -296,6 +340,17 @@
   </div>
 </div>
 
+<div id="pendingScreen" class="pending-screen hidden" style="display:none;">
+  <div class="pending-inner">
+    <p class="role-gate-eyebrow">Powered by IN4Suite ERP</p>
+    <h1 style="font-family:'Fraunces',serif;font-size:26px;font-weight:600;margin:0 0 10px;">Account Setup</h1>
+    <div class="status-banner" id="pendingBanner"></div>
+    <div class="uid-box"><span id="pendingUidText"></span><button id="pendingCopyUidBtn" type="button">Copy</button></div>
+    <div class="btn-row-pending">
+      <button id="pendingRefreshBtn" class="primary" type="button">Refresh</button>
+      <button id="pendingSignOutBtn" type="button">Sign out</button>
+    </div>
+  </div>
 </div>
 
 <div id="appShell" style="display:none;">
@@ -314,6 +369,8 @@
 </header>
 
 <main>
+
+<div id="dashboardView">
 
   <div class="last-updated-badge" id="lastUpdatedBadge" style="display:none;"></div>
 
@@ -593,6 +650,34 @@
 
   </div>
 
+</div>
+
+<div id="adminUsersPanel" class="hidden" style="display:none;">
+  <div class="section-title"><h2>People &amp; Access</h2><div class="line"></div></div>
+  <div class="admin-card">
+    <p class="hint">Anyone who has signed in at least once shows up here, tagged "Pending" until you assign them a role. Changes take effect the next time they sign in (or when they click Refresh below).</p>
+    <table>
+      <thead><tr><th>Email</th><th>Role</th><th></th></tr></thead>
+      <tbody id="usersTbody"></tbody>
+    </table>
+    <p class="empty-row hidden" id="emptyUsersMsg">No one has signed in yet.</p>
+  </div>
+  <div class="admin-card">
+    <h2 style="font-size:15px;color:var(--navy);text-transform:uppercase;letter-spacing:.05em;margin:0 0 16px;">Pre-assign a role by UID</h2>
+    <p class="hint">If someone hasn't signed in yet but you already know their Firebase User UID (Authentication &rarr; Users), you can set their role in advance.</p>
+    <div class="add-row">
+      <input type="text" id="preUidInput" placeholder="User UID">
+      <input type="text" id="preEmailInput" placeholder="Their email (for display only)">
+      <select id="preRoleSelect">
+        <option value="mis">MIS Team</option>
+        <option value="management">Management</option>
+        <option value="admin">Admin</option>
+      </select>
+      <button class="btn btn-primary" id="preAssignBtn" type="button">Assign</button>
+    </div>
+  </div>
+</div>
+
 </main>
 
 <script>
@@ -704,11 +789,15 @@ async function enterRole(role, user){
   currentRole = role;
   currentUser = user;
   document.getElementById('roleGate').style.display = 'none';
+  document.getElementById('pendingScreen').style.display = 'none';
   document.getElementById('appShell').style.display = 'block';
   const indicator = document.getElementById('roleIndicator');
-  const adminLink = role === 'admin' ? `<a href="MP_Dashboard_Account_Setup.html" class="admin-link">Manage users</a>` : '';
+  const adminLink = role === 'admin' ? `<button id="manageUsersBtn" class="admin-link">Manage users</button>` : '';
   indicator.innerHTML = `${adminLink}<span class="badge">${ROLE_LABELS[role] || role} &middot; ${user.email}</span><button id="signOutBtn">Sign out</button>`;
   document.getElementById('signOutBtn').addEventListener('click', ()=> auth.signOut());
+  if(role === 'admin'){
+    document.getElementById('manageUsersBtn').addEventListener('click', toggleUsersPanel);
+  }
 
   if(!UPLOAD_ROLES.includes(role)){
     // Remove the upload UI from the DOM entirely for Management, not just hide it.
@@ -731,6 +820,99 @@ async function enterRole(role, user){
     // else: leave the default upload-card visible, nothing published yet
   }
 }
+
+/* ---- Admin: in-page user management panel (admin role only) ---- */
+let usersPanelShown = false;
+function toggleUsersPanel(){
+  usersPanelShown = !usersPanelShown;
+  document.getElementById('dashboardView').style.display = usersPanelShown ? 'none' : 'block';
+  document.getElementById('adminUsersPanel').style.display = usersPanelShown ? 'block' : 'none';
+  document.getElementById('manageUsersBtn').textContent = usersPanelShown ? 'Back to dashboard' : 'Manage users';
+  if(usersPanelShown) refreshUsersTable();
+}
+
+async function refreshUsersTable(){
+  const tbody = document.getElementById('usersTbody');
+  const emptyMsg = document.getElementById('emptyUsersMsg');
+  tbody.innerHTML = '';
+  const snap = await db.collection('roles').get();
+  if(snap.empty){ emptyMsg.classList.remove('hidden'); return; }
+  emptyMsg.classList.add('hidden');
+  snap.forEach(doc=>{
+    const data = doc.data();
+    const uid = doc.id;
+    const role = data.role || 'pending';
+    const tr = document.createElement('tr');
+    const isPending = role === 'pending';
+    tr.innerHTML = `
+      <td class="email">${data.email || uid}${isPending ? ' <span class="pending-badge">Pending</span>' : ''}</td>
+      <td>
+        <select data-uid="${uid}">
+          <option value="pending" ${role==='pending'?'selected':''}>Pending / No access</option>
+          <option value="mis" ${role==='mis'?'selected':''}>MIS Team</option>
+          <option value="management" ${role==='management'?'selected':''}>Management</option>
+          <option value="admin" ${role==='admin'?'selected':''}>Admin</option>
+        </select>
+      </td>
+      <td><button class="save-btn" data-uid="${uid}" data-email="${data.email||''}">Save</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('.save-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const uid = btn.dataset.uid;
+      const email = btn.dataset.email;
+      const select = tbody.querySelector(`select[data-uid="${uid}"]`);
+      const newRole = select.value;
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try{
+        await db.collection('roles').doc(uid).set({ role: newRole, email });
+        btn.textContent = 'Saved'; btn.classList.add('saved');
+        setTimeout(()=>{ btn.textContent = 'Save'; btn.classList.remove('saved'); btn.disabled = false; }, 1500);
+      }catch(err){
+        alert('Could not update role: ' + err.message);
+        btn.disabled = false; btn.textContent = 'Save';
+      }
+    });
+  });
+}
+
+document.getElementById('preAssignBtn').addEventListener('click', async ()=>{
+  const uid = document.getElementById('preUidInput').value.trim();
+  const email = document.getElementById('preEmailInput').value.trim();
+  const role = document.getElementById('preRoleSelect').value;
+  const btn = document.getElementById('preAssignBtn');
+  if(!uid){ alert('Enter a User UID first.'); return; }
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try{
+    await db.collection('roles').doc(uid).set({ role, email });
+    document.getElementById('preUidInput').value = '';
+    document.getElementById('preEmailInput').value = '';
+    await refreshUsersTable();
+  }catch(err){
+    alert('Could not assign role: ' + err.message);
+  }
+  btn.disabled = false; btn.textContent = 'Assign';
+});
+
+/* ---- Pending / waiting-for-approval screen ---- */
+function showPendingScreen(user, isUnknownRole){
+  document.getElementById('roleGate').style.display = 'none';
+  document.getElementById('appShell').style.display = 'none';
+  document.getElementById('pendingScreen').style.display = 'flex';
+  document.getElementById('pendingUidText').textContent = user.uid;
+  document.getElementById('pendingBanner').innerHTML = isUnknownRole
+    ? `<b>No access assigned.</b> Contact your administrator — this account has an unrecognised access level.`
+    : `<b>Waiting for approval.</b> ${user.email} has signed in but your administrator hasn't granted access yet. Ask them to assign your role, then click Refresh.`;
+}
+document.getElementById('pendingCopyUidBtn').addEventListener('click', ()=>{
+  navigator.clipboard.writeText(currentUser.uid).then(()=>{
+    const b = document.getElementById('pendingCopyUidBtn');
+    b.textContent = 'Copied!'; setTimeout(()=> b.textContent = 'Copy', 1500);
+  });
+});
+document.getElementById('pendingSignOutBtn').addEventListener('click', ()=> auth.signOut());
+document.getElementById('pendingRefreshBtn').addEventListener('click', ()=> location.reload());
 
 document.getElementById('loginForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
@@ -755,24 +937,29 @@ auth.onAuthStateChanged(async (user)=>{
   const btn = document.getElementById('loginSubmitBtn');
   if(!user){
     document.getElementById('roleGate').style.display = 'flex';
+    document.getElementById('pendingScreen').style.display = 'none';
     document.getElementById('appShell').style.display = 'none';
     if(btn){ btn.disabled = false; btn.textContent = 'Sign in'; }
     return;
   }
+  currentUser = user;
   try{
-    const roleDoc = await db.collection('roles').doc(user.uid).get();
-    const role = roleDoc.exists ? roleDoc.data().role : null;
-    if(!['admin','mis','management'].includes(role)){
-      const errEl = document.getElementById('loginError');
-      errEl.textContent = role === 'pending'
-        ? 'Your access request is waiting for admin approval.'
-        : 'This account has no dashboard access assigned yet. Contact your administrator.';
-      errEl.style.display = 'block';
-      if(btn){ btn.disabled = false; btn.textContent = 'Sign in'; }
-      await auth.signOut();
-      return;
+    const roleDocRef = db.collection('roles').doc(user.uid);
+    const roleDoc = await roleDocRef.get();
+    let role;
+    if(roleDoc.exists){
+      role = roleDoc.data().role;
+    } else {
+      // First time this account has ever signed in — register as "pending" so an admin can
+      // find and approve it. Firestore rules only allow self-creating with role "pending".
+      await roleDocRef.set({ role: 'pending', email: user.email });
+      role = 'pending';
     }
-    await enterRole(role, user);
+    if(role === 'admin' || role === 'mis' || role === 'management'){
+      await enterRole(role, user);
+    } else {
+      showPendingScreen(user, role !== 'pending');
+    }
   }catch(err){
     console.error('Role lookup failed', err);
     const errEl = document.getElementById('loginError');
