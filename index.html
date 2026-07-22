@@ -95,6 +95,8 @@
   .login-error{color:#F3B199;font-size:12.5px;margin-top:14px;text-align:center;}
   .role-indicator{margin-left:auto;flex-shrink:0;align-self:flex-start;display:flex;align-items:center;gap:10px;}
   .role-indicator .badge{background:rgba(255,255,255,.12);color:#fff;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:5px 12px;border-radius:20px;}
+  .role-indicator .admin-link{color:var(--gold-light);font-size:12px;font-weight:600;text-decoration:none;border:1px solid rgba(255,255,255,.3);padding:5px 12px;border-radius:20px;}
+  .role-indicator .admin-link:hover{background:rgba(255,255,255,.12);}
   .role-indicator button{background:transparent;border:1px solid rgba(255,255,255,.3);color:#fff;font-size:11.5px;padding:5px 12px;border-radius:20px;cursor:pointer;font-family:'Inter',sans-serif;}
   .role-indicator button:hover{background:rgba(255,255,255,.12);}
 
@@ -695,16 +697,20 @@ async function tryLoadPublishedData(){
   }
 }
 
+const ROLE_LABELS = { admin: 'Admin', mis: 'MIS Team', management: 'Management' };
+const UPLOAD_ROLES = ['admin', 'mis']; // roles that get upload/publish access, same as MIS
+
 async function enterRole(role, user){
   currentRole = role;
   currentUser = user;
   document.getElementById('roleGate').style.display = 'none';
   document.getElementById('appShell').style.display = 'block';
   const indicator = document.getElementById('roleIndicator');
-  indicator.innerHTML = `<span class="badge">${role === 'mis' ? 'MIS Team' : 'Management'} &middot; ${user.email}</span><button id="signOutBtn">Sign out</button>`;
+  const adminLink = role === 'admin' ? `<a href="MP_Dashboard_Account_Setup.html" class="admin-link">Manage users</a>` : '';
+  indicator.innerHTML = `${adminLink}<span class="badge">${ROLE_LABELS[role] || role} &middot; ${user.email}</span><button id="signOutBtn">Sign out</button>`;
   document.getElementById('signOutBtn').addEventListener('click', ()=> auth.signOut());
 
-  if(role === 'management'){
+  if(!UPLOAD_ROLES.includes(role)){
     // Remove the upload UI from the DOM entirely for Management, not just hide it.
     const uc = document.getElementById('uploadCard'); if(uc) uc.remove();
     const lb = document.getElementById('loadedBar'); if(lb) lb.remove();
@@ -756,9 +762,11 @@ auth.onAuthStateChanged(async (user)=>{
   try{
     const roleDoc = await db.collection('roles').doc(user.uid).get();
     const role = roleDoc.exists ? roleDoc.data().role : null;
-    if(role !== 'mis' && role !== 'management'){
+    if(!['admin','mis','management'].includes(role)){
       const errEl = document.getElementById('loginError');
-      errEl.textContent = 'This account has no dashboard access assigned yet. Contact your administrator.';
+      errEl.textContent = role === 'pending'
+        ? 'Your access request is waiting for admin approval.'
+        : 'This account has no dashboard access assigned yet. Contact your administrator.';
       errEl.style.display = 'block';
       if(btn){ btn.disabled = false; btn.textContent = 'Sign in'; }
       await auth.signOut();
