@@ -459,7 +459,7 @@
       <button class="tab-btn" data-page="sold">Sold</button>
       <button class="tab-btn" data-page="available">Available</button>
       <button class="tab-btn" data-page="agreement" id="agreementTabBtn" style="display:none;">Agreement Register</button>
-      <button class="tab-btn" data-page="collection" id="collectionTabBtn" style="display:none;">Collection</button>
+      <button class="tab-btn" data-page="collection" id="collectionTabBtn" style="display:none;">Collection &amp; Outstanding</button>
       <button class="tab-btn" data-page="bookings" id="bookingsTabBtn" style="display:none;">Bookings</button>
     </div>
 
@@ -590,7 +590,7 @@
       </div>
     </div>
 
-    <!-- ================= COLLECTION PAGE ================= -->
+    <!-- ================= COLLECTION & OUTSTANDING PAGE ================= -->
     <div class="page" id="page-collection">
 
       <div class="kpi-grid" id="kpiGridCollection"></div>
@@ -601,10 +601,24 @@
         <div class="chart-card"><h3>Collection by financial year (₹ Cr, by receipt date)</h3><div class="wrap tall"><canvas id="chartCollectionFY"></canvas></div></div>
       </div>
 
-      <div class="section-title"><h2>Outstanding &amp; Composition</h2><div class="line"></div></div>
+      <div class="section-title"><h2>Outstanding by Project</h2><div class="line"></div></div>
       <div class="chart-grid">
         <div class="chart-card"><h3>Outstanding balance by project (top 15, sold value − collected)</h3><div class="wrap tall"><canvas id="chartOutstanding"></canvas></div></div>
-        <div class="chart-card"><h3>Collection composition</h3><div class="wrap tall"><canvas id="chartCollectionComposition"></canvas></div></div>
+        <div class="chart-card"><h3>Collected vs outstanding by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartCollectedVsOutstanding"></canvas></div></div>
+      </div>
+
+      <div class="section-title"><h2>Outstanding — Project-wise Detail</h2><div class="line"></div></div>
+      <div class="table-toolbar">
+        <input type="text" id="outstandingSearchBox" placeholder="Search project name...">
+      </div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="outstandingTable">
+            <thead><tr id="outstandingTheadRow"></tr></thead>
+            <tbody id="outstandingTbody"></tbody>
+            <tfoot><tr id="outstandingTfootRow"></tr></tfoot>
+          </table>
+        </div>
       </div>
 
       <div class="section-title"><h2>Unit-wise Collection Detail</h2><div class="line"></div></div>
@@ -2357,7 +2371,7 @@ function renderCollectionPage(){
   if(!collectionData.length && !outstandingData.length){
     document.getElementById('kpiGridCollection').innerHTML = (RAW.collectionUnitRecords.length || RAW.outstandingRecords.length)
       ? '<p class="chart-note" style="margin:4px 2px;">No collection or outstanding records for the selected project.</p>' : '';
-    destroyChart('collection'); destroyChart('collectionFY'); destroyChart('outstanding'); destroyChart('collectionComposition');
+    destroyChart('collection'); destroyChart('collectionFY'); destroyChart('outstanding'); destroyChart('collectedVsOutstanding');
     return;
   }
   const { projectTotals, principalTotal, interestTotal, excessTotal } = buildCollectionSummary(collectionData);
@@ -2371,15 +2385,17 @@ function renderCollectionPage(){
   // as-on-date, never FY/Month filtered (a snapshot balance, not a period transaction).
   const hasOutstandingReport = outstandingData.length > 0;
   let outstandingTotal, outstandingByProject, collectionPct, outstandingSub, asOnDateLabel;
+  let projDetailByProject = {}; // project -> {units, totalCost, totalReceived, outstanding} — only when hasOutstandingReport
 
   if(hasOutstandingReport){
-    const projMap = {};
     let totalCostSum = 0, totalReceivedSum = 0, netReceivableSum = 0;
     outstandingData.forEach(r=>{
-      projMap[r.project] = (projMap[r.project]||0) + r.netReceivable;
+      if(!projDetailByProject[r.project]) projDetailByProject[r.project] = {units:0, totalCost:0, totalReceived:0, outstanding:0};
+      const p = projDetailByProject[r.project];
+      p.units += 1; p.totalCost += r.totalCost; p.totalReceived += r.totalReceived; p.outstanding += r.netReceivable;
       totalCostSum += r.totalCost; totalReceivedSum += r.totalReceived; netReceivableSum += r.netReceivable;
     });
-    outstandingByProject = Object.entries(projMap).map(([project,outstanding])=>({project, outstanding})).filter(p=>p.outstanding>0);
+    outstandingByProject = Object.entries(projDetailByProject).map(([project,d])=>({project, outstanding:d.outstanding})).filter(p=>p.outstanding>0);
     outstandingTotal = netReceivableSum;
     collectionPct = totalCostSum ? (totalReceivedSum/totalCostSum*100) : 0;
     asOnDateLabel = outstandingData[0].asOnDate;
@@ -2404,12 +2420,13 @@ function renderCollectionPage(){
   // "Total Collected" and the project chart DO respect Project + FY + Month, sourced from the dated
   // Sheet1 receipts rather than the dateless Sheet6 unit summary.
   const totalCollected = periodActive ? collectionPeriodTotal : allTimeCollected;
+  const outstandingRatioPct = Math.max(0, 100 - collectionPct);
 
   document.getElementById('kpiGridCollection').innerHTML = [
     {lbl:'Total Collected', val: fmtINRCr(totalCollected), sub: periodActive ? 'Received in the selected period' : `${fmtNum(unitsRecorded)} units with collection recorded`},
     {lbl:'Collection %', val: fmtPct(collectionPct), sub:(hasOutstandingReport?'':'Estimated — ') + 'of total cost, all-time (not affected by FY/Month)'},
     {lbl:'Outstanding Balance', val: fmtINRCr(outstandingTotal), sub: outstandingSub},
-    {lbl:'Principal Collected', val: fmtINRCr(principalTotal), sub:`${fmtPct(allTimeCollected?interestTotal/allTimeCollected*100:0)} interest &middot; ${fmtPct(allTimeCollected?excessTotal/allTimeCollected*100:0)} excess &middot; all-time`},
+    {lbl:'Collection Ratio', val: `${collectionPct.toFixed(0)} : ${outstandingRatioPct.toFixed(0)}`, sub:'Collected : Outstanding, of total cost, all-time'},
   ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
 
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
@@ -2489,24 +2506,66 @@ function renderCollectionPage(){
   });
   }
 
-  // 4. Collection composition donut (always all-time — Sheet6 has no dates)
-  destroyChart('collectionComposition');
-  if(principalTotal + interestTotal + excessTotal === 0){
-    chartEmptyMessage('chartCollectionComposition', 'No collection data for the current filter.');
+  // 4. Collected vs Outstanding by project (top 15, stacked) — replaces the old composition donut
+  let byCombined;
+  if(hasOutstandingReport){
+    byCombined = Object.entries(projDetailByProject)
+      .map(([project,d])=>({project, collected:d.totalReceived, outstanding:d.outstanding}))
+      .sort((a,b)=>(b.collected+b.outstanding)-(a.collected+a.outstanding)).slice(0,15);
   } else {
-  chartClearEmptyMessage('chartCollectionComposition');
-  charts.collectionComposition = new Chart(document.getElementById('chartCollectionComposition'), {
-    type:'doughnut',
-    data:{ labels:['Principal','Interest','Excess'], datasets:[{ data:[principalTotal,interestTotal,excessTotal], backgroundColor:[teal,gold,navy], borderWidth:2, borderColor:'#fff' }] },
+    byCombined = outstandingByProject
+      .map(p=>({project:p.project, collected:p.collected||0, outstanding:p.outstanding}))
+      .sort((a,b)=>(b.collected+b.outstanding)-(a.collected+a.outstanding)).slice(0,15);
+  }
+  destroyChart('collectedVsOutstanding');
+  if(byCombined.length === 0){
+    chartEmptyMessage('chartCollectedVsOutstanding', 'No data for the current filter.');
+  } else {
+  chartClearEmptyMessage('chartCollectedVsOutstanding');
+  charts.collectedVsOutstanding = new Chart(document.getElementById('chartCollectedVsOutstanding'), {
+    type:'bar',
+    data:{
+      labels: byCombined.map(p=>p.project),
+      datasets:[
+        {label:'Collected', data: byCombined.map(p=>p.collected/1e7), backgroundColor: teal, stack:'a'},
+        {label:'Outstanding', data: byCombined.map(p=>p.outstanding/1e7), backgroundColor: brick, stack:'a'},
+      ]
+    },
     options:{
       responsive:true, maintainAspectRatio:false,
-      plugins:{
-        legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}},
-        datalabels:{ color:'#fff', font:{weight:'700',size:11}, formatter:(v)=> v>0 ? fmtINRCr(v) : '' }
-      }
-    },
-    plugins:[ChartDataLabels]
+      scales:{ x:{ ticks:{ maxRotation:55, minRotation:55, font:{size:10} }, grid:{display:false} }, y:{ stacked:true, title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} } },
+      plugins:{ legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}}, tooltip:{callbacks:{label: ctx=> ctx.dataset.label+': ₹'+ctx.raw.toFixed(2)+' Cr'}} }
+    }
   });
+  }
+
+  // ---- Outstanding — Project-wise Detail table (only meaningful with the Outstanding report) ----
+  if(hasOutstandingReport){
+    const outstandingRows = Object.entries(projDetailByProject).map(([project,d])=>({
+      project, units:d.units, totalCost:d.totalCost, totalReceived:d.totalReceived, outstanding:d.outstanding,
+      outstandingPct: d.totalCost ? (d.outstanding/d.totalCost*100) : null,
+    }));
+    renderGenericTable({
+      theadId:'outstandingTheadRow', tbodyId:'outstandingTbody', tfootId:'outstandingTfootRow', searchId:'outstandingSearchBox',
+      sortStateKey:'outstandingProject',
+      columns:[
+        {key:'project', label:'Project', align:'left'},
+        {key:'units', label:'Units', fmt:fmtNum},
+        {key:'totalCost', label:'Total Cost', fmt:fmtINRCr},
+        {key:'totalReceived', label:'Total Received', fmt:fmtINRCr},
+        {key:'outstanding', label:'Outstanding', fmt:fmtINRCr},
+        {key:'outstandingPct', label:'Outstanding %', fmt:fmtPct},
+      ],
+      rowsSource: outstandingRows,
+      defaultSort:{key:'outstanding', dir:-1},
+      totalsLabel:'projects'
+    });
+    document.getElementById('outstandingTable').closest('.table-card').style.display = '';
+    document.querySelector('#outstandingSearchBox').closest('.table-toolbar').style.display = '';
+  } else {
+    document.getElementById('outstandingTbody').innerHTML = '';
+    document.getElementById('outstandingTheadRow').innerHTML = '';
+    document.getElementById('outstandingTfootRow').innerHTML = `<td style="padding:14px;color:var(--muted);">Upload the Outstanding Payments Report to see project-wise Net Receivable detail here.</td>`;
   }
 
   renderGenericTable({
@@ -2519,9 +2578,6 @@ function renderCollectionPage(){
       {key:'unitNo', label:'Unit No', align:'left', noSum:true},
       {key:'customer', label:'Customer', align:'left', noSum:true},
       {key:'accStatus', label:'Acc. Status', align:'left', noSum:true},
-      {key:'principal', label:'Principal Collected', fmt:fmtINRCr},
-      {key:'interest', label:'Interest Collected', fmt:fmtINRCr},
-      {key:'excess', label:'Excess Collected', fmt:fmtINRCr},
       {key:'total', label:'Total Collected', fmt:fmtINRCr},
     ],
     rowsSource: collectionData,
