@@ -459,6 +459,7 @@
     <div class="tabs">
       <button class="tab-btn active" data-page="overview">Overview</button>
       <button class="tab-btn" data-page="sales">Sales</button>
+      <button class="tab-btn" data-page="unsold">Unsold</button>
       <button class="tab-btn" data-page="crm" id="crmTabBtn" style="display:none;">CRM</button>
     </div>
 
@@ -548,8 +549,44 @@
         </div>
       </div>
 
-      <div class="section-title group"><h2>Available</h2><div class="line"></div></div>
+      <div class="section-title group" id="salesBookingsHeader"><h2>Bookings</h2><div class="line"></div></div>
+      <div id="salesBookingsSection">
 
+
+      <div class="kpi-grid" id="kpiGridBookings"></div>
+
+      <div class="section-title"><h2>Bookings by Project &amp; Financial Year</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="chart-card"><h3>Booking value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartBookingProject"></canvas></div></div>
+        <div class="chart-card"><h3>Booking value by financial year (₹ Cr)</h3><div class="wrap tall"><canvas id="chartBookingFY"></canvas></div></div>
+      </div>
+
+      <div class="section-title"><h2>Unit Type &amp; Area</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="chart-card"><h3>Booking value by unit type (₹ Cr)</h3><div class="wrap tall"><canvas id="chartBookingUnitType"></canvas></div></div>
+        <div class="chart-card"><h3>Area booked by project (top 15, sq.ft)</h3><div class="wrap tall"><canvas id="chartBookingArea"></canvas></div></div>
+      </div>
+
+      <div class="section-title"><h2>Unit-wise Booking Detail</h2><div class="line"></div></div>
+      <div class="table-toolbar">
+        <input type="text" id="bookingSearchBox" placeholder="Search project, unit or customer...">
+      </div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="bookingTable">
+            <thead><tr id="bookingTheadRow"></tr></thead>
+            <tbody id="bookingTbody"></tbody>
+            <tfoot><tr id="bookingTfootRow"></tr></tfoot>
+          </table>
+        </div>
+      </div>
+
+      </div>
+
+    </div>
+
+<!-- ================= UNSOLD PAGE ================= -->
+    <div class="page" id="page-unsold">
 
       <div class="kpi-grid" id="kpiGridAvail"></div>
 
@@ -557,6 +594,15 @@
       <div class="chart-grid">
         <div class="chart-card"><h3>Available value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartAvailValue"></canvas></div></div>
         <div class="chart-card"><h3>Available area by project (top 15, sq.ft)</h3><div class="wrap tall"><canvas id="chartAvailArea"></canvas></div></div>
+      </div>
+
+      <div class="section-title"><h2>Unsold Breakdown</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="chart-card"><h3>Unsold value by location (₹ Cr)</h3><div class="wrap tall"><canvas id="chartUnsoldLocation"></canvas></div></div>
+        <div class="chart-card"><h3>Unsold value by property type (₹ Cr)</h3><div class="wrap tall"><canvas id="chartUnsoldProperty"></canvas></div></div>
+      </div>
+      <div class="chart-grid one" style="margin-top:18px;">
+        <div class="chart-card"><h3>Unsold value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartUnsoldProject"></canvas></div></div>
       </div>
 
       <div class="section-title"><h2>Available — Project-wise Detail</h2><div class="line"></div></div>
@@ -594,40 +640,6 @@
             <tfoot><tr id="propertyWiseTfootRow"></tr></tfoot>
           </table>
         </div>
-      </div>
-
-      <div class="section-title group" id="salesBookingsHeader"><h2>Bookings</h2><div class="line"></div></div>
-      <div id="salesBookingsSection">
-
-
-      <div class="kpi-grid" id="kpiGridBookings"></div>
-
-      <div class="section-title"><h2>Bookings by Project &amp; Financial Year</h2><div class="line"></div></div>
-      <div class="chart-grid">
-        <div class="chart-card"><h3>Booking value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartBookingProject"></canvas></div></div>
-        <div class="chart-card"><h3>Booking value by financial year (₹ Cr)</h3><div class="wrap tall"><canvas id="chartBookingFY"></canvas></div></div>
-      </div>
-
-      <div class="section-title"><h2>Unit Type &amp; Area</h2><div class="line"></div></div>
-      <div class="chart-grid">
-        <div class="chart-card"><h3>Booking value by unit type (₹ Cr)</h3><div class="wrap tall"><canvas id="chartBookingUnitType"></canvas></div></div>
-        <div class="chart-card"><h3>Area booked by project (top 15, sq.ft)</h3><div class="wrap tall"><canvas id="chartBookingArea"></canvas></div></div>
-      </div>
-
-      <div class="section-title"><h2>Unit-wise Booking Detail</h2><div class="line"></div></div>
-      <div class="table-toolbar">
-        <input type="text" id="bookingSearchBox" placeholder="Search project, unit or customer...">
-      </div>
-      <div class="table-card">
-        <div class="table-scroll">
-          <table id="bookingTable">
-            <thead><tr id="bookingTheadRow"></tr></thead>
-            <tbody id="bookingTbody"></tbody>
-            <tfoot><tr id="bookingTfootRow"></tr></tfoot>
-          </table>
-        </div>
-      </div>
-
       </div>
 
     </div>
@@ -798,39 +810,45 @@ const db = firebase.firestore();
 // of one big one — every individual piece has comfortable headroom to keep growing month to month.
 const RAW_KEYS = ['customerRecords','stockDict','stockUnitRecords','agreementRecords','collectionUnitRecords','collectionReceiptRecords','bookingRecords','outstandingRecords'];
 
-// Project -> physical location, as supplied by MP Developers (not derivable from any ERP report).
-// Projects not in this list show under "Unmapped" in the Location Wise view rather than being
-// silently dropped or guessed at — flag those to be added here as they come up.
-const PROJECT_LOCATION = {
-  'MP Amber': 'Anakaputhur',
-  'MP Divine': 'Kundrathur',
-  'MP Eden': 'Kalyanakuppam',
-  'MP Golden Heights': 'Kovur',
-  'MP Green Bay': 'Kundrathur',
-  'MP Hila': 'Pozhichallur',
-  'MP Madang Gardens': 'Sirukadal',
-  'MP Malarvanam': 'Sirukadal',
-  'MP Marbella': 'T Nagar',
-  'MP Mavis': 'Old Perungalathur',
-  'MP Mugil & MP Mugavari': 'Mugalivakkam',
-  'MP Pace Petals': 'Kundrathur',
-  'MP Paradise Petals': 'Kundrathur',
-  'MP Pastel Petals': 'Kundrathur',
-  'MP Pave Petals': 'Kundrathur',
-  'MP Peach Petals': 'Kundrathur',
-  'MP Pear Petals': 'Kundrathur',
-  'MP Pearl Petals': 'Kundrathur',
-  'MP Petals': 'Kundrathur',
-  'MP Prism Petals': 'Kundrathur',
-  'MP Puro Petals': 'Kundrathur',
-  'MP Rue Radiale': 'Nemilichery',
-  'MP Rue Radiale 2.0': 'Nemilichery',
-  'MP VALAS27': 'Valasaravakkam',
-  'MP Varam': 'Vanagaram',
-  'The White House': 'Manapakkam',
+// Project -> physical location & property type, as supplied by MP Developers (not derivable from
+// any ERP report). Projects not in this list show under "Unmapped" in the Location Wise view
+// rather than being silently dropped or guessed at — flag those to be added here as they come up.
+const PROJECT_INFO = {
+  'MP Amber': { location:'Anakaputhur', property:'Apartment' },
+  'MP Divine': { location:'Kundrathur', property:'Apartment' },
+  'MP Eden': { location:'Kalyanakuppam', property:'Plot' },
+  'MP Golden Heights': { location:'Kovur', property:'Apartment' },
+  'MP Green Bay': { location:'Kundrathur', property:'Apartment' },
+  'MP Hila': { location:'Pozhichallur', property:'Apartment' },
+  'MP Madang Gardens': { location:'Sirukadal', property:'Plot' },
+  'MP Malarvanam': { location:'Sirukadal', property:'Plot' },
+  'MP Marbella': { location:'T Nagar', property:'Apartment' },
+  'MP Mavis': { location:'Old Perungalathur', property:'Apartment' },
+  'MP Mugil & MP Mugavari': { location:'Mugalivakkam', property:'Apartment' },
+  'MP Pace Petals': { location:'Kundrathur', property:'Apartment' },
+  'MP Paradise Petals': { location:'Kundrathur', property:'Apartment' },
+  'MP Pastel Petals': { location:'Kundrathur', property:'Apartment' },
+  'MP Pave Petals': { location:'Kundrathur', property:'Apartment' },
+  'MP Peach Petals': { location:'Kundrathur', property:'Apartment' },
+  'MP Pear Petals': { location:'Kundrathur', property:'Apartment' },
+  'MP Pearl Petals': { location:'Kundrathur', property:'Apartment' },
+  'MP Petals': { location:'Kundrathur', property:'Apartment' },
+  'MP Prism Petals': { location:'Kundrathur', property:'Apartment' },
+  'MP Puro Petals': { location:'Kundrathur', property:'Apartment' },
+  'MP Rue Radiale': { location:'Nemilichery', property:'Apartment' },
+  'MP Rue Radiale 2.0': { location:'Nemilichery', property:'Apartment' },
+  'MP VALAS27': { location:'Valasaravakkam', property:'Apartment' },
+  'MP Varam': { location:'Vanagaram', property:'Apartment' },
+  'The White House': { location:'Manapakkam', property:'Apartment' },
 };
-function getLocation(project){ return PROJECT_LOCATION[project] || 'Unmapped'; }
-function getPropertyType(unitType){ return (unitType || '').toUpperCase().includes('PLOT') ? 'Plot' : 'Apartment'; }
+function getLocation(project){ return (PROJECT_INFO[project] && PROJECT_INFO[project].location) || 'Unmapped'; }
+function getPropertyType(project, unitType){
+  // Prefer MP Developers' own project-level classification; only guess from the unit type
+  // (Sales & Stock Summary report) for projects not yet in that list.
+  const known = PROJECT_INFO[project];
+  if(known && known.property) return known.property;
+  return (unitType || '').toUpperCase().includes('PLOT') ? 'Plot' : 'Apartment';
+}
 
 const DASH_COL = db.collection('dashboardData');
 let currentRole = null;
@@ -1877,7 +1895,7 @@ function applyFiltersAndRender(){
     const loc = getLocation(r.project);
     if(!locMap[loc]) locMap[loc] = {units:0, value:0, area:0};
     locMap[loc].units += 1; locMap[loc].value += r.amount; locMap[loc].area += (r.area||0);
-    const prop = getPropertyType(r.unitType);
+    const prop = getPropertyType(r.project, r.unitType);
     if(!propMap[prop]) propMap[prop] = {units:0, value:0, area:0};
     propMap[prop].units += 1; propMap[prop].value += r.amount; propMap[prop].area += (r.area||0);
   });
@@ -2141,6 +2159,72 @@ function renderCharts(){
       scales:{ x:{ ticks:{ maxRotation:55, minRotation:55, font:{size:10} }, grid:{display:false} }, y:{ stacked:true, title:{display:true,text:'sq.ft'}, grid:{color:'#EEF1F5'} } },
       plugins:{ legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}} }
     }
+  });
+  }
+
+  // 2b. Unsold value by location (top-level Overview summary — detail table lives on Sales tab)
+  const byLocation = [...locationWiseData].filter(l=>l.value>0).sort((a,b)=>b.value-a.value);
+  destroyChart('unsoldLocation');
+  if(byLocation.length === 0){
+    chartEmptyMessage('chartUnsoldLocation', 'No unsold inventory for the current filter.');
+  } else {
+  chartClearEmptyMessage('chartUnsoldLocation');
+  charts.unsoldLocation = new Chart(document.getElementById('chartUnsoldLocation'), {
+    type:'bar',
+    data:{ labels: byLocation.map(l=>l.location), datasets:[{ label:'Unsold Value', data: byLocation.map(l=>l.value/1e7), backgroundColor: gold }] },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
+      plugins:{
+        legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
+        datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:11}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
+      }
+    },
+    plugins:[ChartDataLabels]
+  });
+  }
+
+  // 2c. Unsold value by property type
+  const byProperty = [...propertyWiseData].filter(p=>p.value>0).sort((a,b)=>b.value-a.value);
+  destroyChart('unsoldProperty');
+  if(byProperty.length === 0){
+    chartEmptyMessage('chartUnsoldProperty', 'No unsold inventory for the current filter.');
+  } else {
+  chartClearEmptyMessage('chartUnsoldProperty');
+  charts.unsoldProperty = new Chart(document.getElementById('chartUnsoldProperty'), {
+    type:'bar',
+    data:{ labels: byProperty.map(p=>p.property), datasets:[{ label:'Unsold Value', data: byProperty.map(p=>p.value/1e7), backgroundColor: teal }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      scales:{ x:{ grid:{display:false} }, y:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} } },
+      plugins:{
+        legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
+        datalabels:{ color: navy, anchor:'end', align:'top', font:{weight:'600',size:12}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
+      }
+    },
+    plugins:[ChartDataLabels]
+  });
+  }
+
+  // 2d. Unsold value by project (top 15)
+  const byUnsoldProject = [...masterData].filter(m=>m.availValue>0).sort((a,b)=>b.availValue-a.availValue).slice(0,15);
+  destroyChart('unsoldProject');
+  if(byUnsoldProject.length === 0){
+    chartEmptyMessage('chartUnsoldProject', 'No unsold inventory for the current filter.');
+  } else {
+  chartClearEmptyMessage('chartUnsoldProject');
+  charts.unsoldProject = new Chart(document.getElementById('chartUnsoldProject'), {
+    type:'bar',
+    data:{ labels: byUnsoldProject.map(m=>m.project), datasets:[{ label:'Unsold Value', data: byUnsoldProject.map(m=>m.availValue/1e7), backgroundColor: gold }] },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
+      plugins:{
+        legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
+        datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:11}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
+      }
+    },
+    plugins:[ChartDataLabels]
   });
   }
 
