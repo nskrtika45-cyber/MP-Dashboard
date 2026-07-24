@@ -573,6 +573,29 @@
         </div>
       </div>
 
+      <div class="section-title"><h2>Unsold — Location Wise</h2><div class="line"></div></div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="locationWiseTable">
+            <thead><tr><th style="text-align:left;">Location</th><th>No of Units</th><th>Net Value</th><th>Total Sq.ft</th></tr></thead>
+            <tbody id="locationWiseTbody"></tbody>
+            <tfoot><tr id="locationWiseTfootRow"></tr></tfoot>
+          </table>
+        </div>
+      </div>
+      <p class="chart-note" id="locationUnmappedNote" style="margin:8px 2px 0;"></p>
+
+      <div class="section-title"><h2>Unsold — Property Wise</h2><div class="line"></div></div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="propertyWiseTable">
+            <thead><tr><th style="text-align:left;">Property</th><th>No of Units</th><th>Net Value</th><th>Total Sq.ft</th></tr></thead>
+            <tbody id="propertyWiseTbody"></tbody>
+            <tfoot><tr id="propertyWiseTfootRow"></tr></tfoot>
+          </table>
+        </div>
+      </div>
+
       <div class="section-title group" id="salesBookingsHeader"><h2>Bookings</h2><div class="line"></div></div>
       <div id="salesBookingsSection">
 
@@ -774,6 +797,41 @@ const db = firebase.firestore();
 // ~1.4MB with 5 reports loaded), so each RAW.* array is stored as its own small document instead
 // of one big one — every individual piece has comfortable headroom to keep growing month to month.
 const RAW_KEYS = ['customerRecords','stockDict','stockUnitRecords','agreementRecords','collectionUnitRecords','collectionReceiptRecords','bookingRecords','outstandingRecords'];
+
+// Project -> physical location, as supplied by MP Developers (not derivable from any ERP report).
+// Projects not in this list show under "Unmapped" in the Location Wise view rather than being
+// silently dropped or guessed at — flag those to be added here as they come up.
+const PROJECT_LOCATION = {
+  'MP Amber': 'Anakaputhur',
+  'MP Divine': 'Kundrathur',
+  'MP Eden': 'Kalyanakuppam',
+  'MP Golden Heights': 'Kovur',
+  'MP Green Bay': 'Kundrathur',
+  'MP Hila': 'Pozhichallur',
+  'MP Madang Gardens': 'Sirukadal',
+  'MP Malarvanam': 'Sirukadal',
+  'MP Marbella': 'T Nagar',
+  'MP Mavis': 'Old Perungalathur',
+  'MP Mugil & MP Mugavari': 'Mugalivakkam',
+  'MP Pace Petals': 'Kundrathur',
+  'MP Paradise Petals': 'Kundrathur',
+  'MP Pastel Petals': 'Kundrathur',
+  'MP Pave Petals': 'Kundrathur',
+  'MP Peach Petals': 'Kundrathur',
+  'MP Pear Petals': 'Kundrathur',
+  'MP Pearl Petals': 'Kundrathur',
+  'MP Petals': 'Kundrathur',
+  'MP Prism Petals': 'Kundrathur',
+  'MP Puro Petals': 'Kundrathur',
+  'MP Rue Radiale': 'Nemilichery',
+  'MP Rue Radiale 2.0': 'Nemilichery',
+  'MP VALAS27': 'Valasaravakkam',
+  'MP Varam': 'Vanagaram',
+  'The White House': 'Manapakkam',
+};
+function getLocation(project){ return PROJECT_LOCATION[project] || 'Unmapped'; }
+function getPropertyType(unitType){ return (unitType || '').toUpperCase().includes('PLOT') ? 'Plot' : 'Apartment'; }
+
 const DASH_COL = db.collection('dashboardData');
 let currentRole = null;
 let currentUser = null;
@@ -1098,6 +1156,8 @@ let agreementData = [];
 let collectionData = [];
 let collectionFYData = [];
 let outstandingData = [];
+let locationWiseData = [];
+let propertyWiseData = [];
 let bookingData = [];
 let bookingFYData = [];
 let bookingMonthData = [];
@@ -1361,6 +1421,7 @@ function parseStockSummary(wb){
   const statusColIdx = col1['Status'] !== undefined ? col1['Status'] : 9;
   const netAmountColIdx = col1['Net Amount'] !== undefined ? col1['Net Amount'] : 13;
   const superAreaColIdx = col1['Super Area'];
+  const unitTypeColIdx = col1['Unit Type'];
 
   const unitRecords = [];
   let currentProject1 = null;
@@ -1377,7 +1438,8 @@ function parseStockSummary(wb){
     const proj = (projectColIdx !== undefined && r[projectColIdx]) ? r[projectColIdx] : currentProject1;
     if(!proj) continue;
     const area = (superAreaColIdx !== undefined && typeof r[superAreaColIdx] === 'number') ? r[superAreaColIdx] : 0;
-    unitRecords.push({ project: proj, status, bookingDate, amount: amt, area });
+    const unitType = (unitTypeColIdx !== undefined && r[unitTypeColIdx]) ? r[unitTypeColIdx] : '';
+    unitRecords.push({ project: proj, status, bookingDate, amount: amt, area, unitType });
   }
   return {stock, unitRecords};
 }
@@ -1705,6 +1767,8 @@ function buildMasterTable(discount, stock, value){
       totalUnits: s.totalUnits, soldUnits: s.soldUnits, availUnits: s.availUnits, blockedUnits: s.blockedUnits,
       totalArea, soldArea: s.soldArea, availArea: s.availArea, blockedArea: s.blockedArea,
       soldValue: v.soldValue, availValue: v.availValue, totalValue,
+      avgSoldPrice: s.soldArea ? v.soldValue/s.soldArea : null,
+      avgAvailPrice: s.availArea ? v.availValue/s.availArea : null,
       beforeDiscount: d ? d.before : null,
       afterDiscount: d ? d.after : null,
       discountValue: d ? (d.before - d.after) : null,
@@ -1805,6 +1869,20 @@ function applyFiltersAndRender(){
   const availFiltered = filterProjectOnly(availRecs);                 // snapshot — Project only
   const { value: valueSold, units: soldUnitCounts, area: soldAreaSums } = aggregateStockValue(soldFiltered);
   const { value: valueAvail } = aggregateStockValue(availFiltered);
+
+  // Unsold (Available) broken down by physical location and by property type (Apartment/Plot) —
+  // both snapshot views, Project-filter only, matching Available's own no-date-filter behaviour.
+  const locMap = {}, propMap = {};
+  availFiltered.forEach(r=>{
+    const loc = getLocation(r.project);
+    if(!locMap[loc]) locMap[loc] = {units:0, value:0, area:0};
+    locMap[loc].units += 1; locMap[loc].value += r.amount; locMap[loc].area += (r.area||0);
+    const prop = getPropertyType(r.unitType);
+    if(!propMap[prop]) propMap[prop] = {units:0, value:0, area:0};
+    propMap[prop].units += 1; propMap[prop].value += r.amount; propMap[prop].area += (r.area||0);
+  });
+  locationWiseData = Object.entries(locMap).map(([location,d])=>({location, ...d})).sort((a,b)=>b.value-a.value);
+  propertyWiseData = Object.entries(propMap).map(([property,d])=>({property, ...d})).sort((a,b)=>b.value-a.value);
   const value = {};
   new Set([...Object.keys(valueSold), ...Object.keys(valueAvail)]).forEach(p=>{
     value[p] = { soldValue: (valueSold[p]&&valueSold[p].soldValue)||0, availValue: (valueAvail[p]&&valueAvail[p].availValue)||0 };
@@ -1939,6 +2017,8 @@ function renderAll(){
   renderBookingPage();
   renderSalesProjectTable();
   renderCRMProjectTable();
+  renderLocationWiseTable();
+  renderPropertyWiseTable();
 }
 
 function grandTotals(){
@@ -1960,8 +2040,6 @@ function grandTotals(){
 
 function renderKPIs(){
   const t = grandTotals();
-  const discountVal = t.beforeDiscount - t.afterDiscount;
-  const discountPct = t.beforeDiscount ? (discountVal/t.beforeDiscount*100) : 0;
   const cancellationBase = t.activeBookedUnits + t.cancelledUnits;
   const cancellationRate = cancellationBase ? (t.cancelledUnits/cancellationBase*100) : 0;
   const cards = [
@@ -1970,7 +2048,6 @@ function renderKPIs(){
     {lbl:'Total Saleable Area', val: fmtNum(t.totalArea)+' <span style="font-size:13px;color:var(--muted);">sq.ft</span>', sub:'Across sold, available &amp; blocked stock'},
     {lbl:'Sold Value', val: fmtINRCr(t.soldValue), sub: `of ${fmtINRCr(t.totalValue)} total portfolio value`},
     {lbl:'Available Value', val: fmtINRCr(t.availValue), sub:'Unsold inventory at current rates'},
-    {lbl:'Discount Given', val: fmtINRCr(discountVal), sub: `<b>${fmtPct(discountPct)}</b> of pre-discount value`},
     {lbl:'Cancelled Bookings', val: fmtNum(t.cancelledUnits), sub: `<b class="neg">${fmtPct(cancellationRate)}</b> of all bookings placed`},
   ];
   document.getElementById('kpiGrid').innerHTML = cards.map(c=>`
@@ -2821,6 +2898,37 @@ function renderCRMProjectTable(){
   });
 }
 
+/* ============ UNSOLD: LOCATION WISE & PROPERTY WISE (within Sales > Available) ============ */
+
+function renderLocationWiseTable(){
+  const tbody = document.getElementById('locationWiseTbody');
+  const sorted = [...locationWiseData].sort((a,b)=>b.value-a.value);
+  tbody.innerHTML = sorted.map(r=>`
+    <tr><td class="proj">${r.location}</td><td>${fmtNum(r.units)}</td><td>${fmtINRFull(r.value)}</td><td>${fmtNum(r.area)}</td></tr>
+  `).join('');
+  const t = sorted.reduce((acc,r)=>{ acc.units+=r.units; acc.value+=r.value; acc.area+=r.area; return acc; }, {units:0,value:0,area:0});
+  document.getElementById('locationWiseTfootRow').innerHTML = `
+    <td class="proj">Total</td><td>${fmtNum(t.units)}</td><td>${fmtINRFull(t.value)}</td><td>${fmtNum(t.area)}</td>
+  `;
+  const unmapped = sorted.find(r=>r.location==='Unmapped');
+  const noteEl = document.getElementById('locationUnmappedNote');
+  noteEl.textContent = unmapped
+    ? `${fmtNum(unmapped.units)} unsold units aren't mapped to a location yet — tell me which projects and where, and I'll add them.`
+    : '';
+}
+
+function renderPropertyWiseTable(){
+  const tbody = document.getElementById('propertyWiseTbody');
+  const sorted = [...propertyWiseData].sort((a,b)=>b.value-a.value);
+  tbody.innerHTML = sorted.map(r=>`
+    <tr><td class="proj">${r.property}</td><td>${fmtNum(r.units)}</td><td>${fmtINRFull(r.value)}</td><td>${fmtNum(r.area)}</td></tr>
+  `).join('');
+  const t = sorted.reduce((acc,r)=>{ acc.units+=r.units; acc.value+=r.value; acc.area+=r.area; return acc; }, {units:0,value:0,area:0});
+  document.getElementById('propertyWiseTfootRow').innerHTML = `
+    <td class="proj">Total</td><td>${fmtNum(t.units)}</td><td>${fmtINRFull(t.value)}</td><td>${fmtNum(t.area)}</td>
+  `;
+}
+
 /* ============ GENERIC TABLE (Sold / Available pages) ============ */
 
 const sortStates = {};
@@ -2911,10 +3019,8 @@ const columns = [
   {key:'soldValue', label:'Sold Value', fmt:fmtINRCr},
   {key:'availValue', label:'Available Value', fmt:fmtINRCr},
   {key:'totalValue', label:'Total Value', fmt:fmtINRCr},
-  {key:'beforeDiscount', label:'Before Discount', fmt:fmtINRCr},
-  {key:'afterDiscount', label:'After Discount', fmt:fmtINRCr},
-  {key:'discountValue', label:'Discount', fmt:fmtINRCr},
-  {key:'discountPct', label:'Discount %', fmt:fmtPct},
+  {key:'avgSoldPrice', label:'Avg Sold Price (₹/sq.ft)', fmt:(n)=> n===null?'—':'₹'+Math.round(n).toLocaleString('en-IN')},
+  {key:'avgAvailPrice', label:'Avg Available Price (₹/sq.ft)', fmt:(n)=> n===null?'—':'₹'+Math.round(n).toLocaleString('en-IN')},
   {key:'cancelledUnits', label:'Cancelled', fmt:fmtNum},
 ];
 
@@ -2948,7 +3054,7 @@ function renderTable(){
   tbody.innerHTML = rows.map(m=>{
     return '<tr>' + columns.map(c=>{
       const v = m[c.key];
-      const cls = c.key==='project' ? 'proj' : (v===null ? 'muted-cell' : (c.key==='discountValue'||c.key==='discountPct') && v>0 ? 'neg' : '');
+      const cls = c.key==='project' ? 'proj' : (v===null ? 'muted-cell' : '');
       const display = c.fmt ? c.fmt(v) : v;
       return `<td class="${cls}">${display}</td>`;
     }).join('') + '</tr>';
@@ -2957,19 +3063,20 @@ function renderTable(){
   const t = rows.reduce((acc,m)=>{
     acc.totalUnits+=m.totalUnits||0; acc.soldUnits+=m.soldUnits||0; acc.availUnits+=m.availUnits||0; acc.blockedUnits+=m.blockedUnits||0;
     acc.totalArea+=m.totalArea||0; acc.soldValue+=m.soldValue||0; acc.availValue+=m.availValue||0; acc.totalValue+=m.totalValue||0;
-    if(m.beforeDiscount!==null){acc.beforeDiscount+=m.beforeDiscount; acc.afterDiscount+=m.afterDiscount;}
+    acc.soldArea+=m.soldArea||0; acc.availArea+=m.availArea||0;
     acc.cancelledUnits+=m.cancelledUnits||0;
     return acc;
-  },{totalUnits:0,soldUnits:0,availUnits:0,blockedUnits:0,totalArea:0,soldValue:0,availValue:0,totalValue:0,beforeDiscount:0,afterDiscount:0,cancelledUnits:0});
-  const discVal = t.beforeDiscount - t.afterDiscount;
-  const discPct = t.beforeDiscount ? discVal/t.beforeDiscount*100 : null;
+  },{totalUnits:0,soldUnits:0,availUnits:0,blockedUnits:0,totalArea:0,soldValue:0,availValue:0,totalValue:0,soldArea:0,availArea:0,cancelledUnits:0});
+  const avgSoldPriceAll = t.soldArea ? t.soldValue/t.soldArea : null;
+  const avgAvailPriceAll = t.availArea ? t.availValue/t.availArea : null;
 
   document.getElementById('tfootRow').innerHTML = `
     <td class="proj">Total (${rows.length} projects)</td>
     <td>${fmtNum(t.totalUnits)}</td><td>${fmtNum(t.soldUnits)}</td><td>${fmtNum(t.availUnits)}</td><td>${fmtNum(t.blockedUnits)}</td>
     <td>${fmtNum(t.totalArea)}</td>
     <td>${fmtINRCr(t.soldValue)}</td><td>${fmtINRCr(t.availValue)}</td><td>${fmtINRCr(t.totalValue)}</td>
-    <td>${fmtINRCr(t.beforeDiscount)}</td><td>${fmtINRCr(t.afterDiscount)}</td><td>${fmtINRCr(discVal)}</td><td>${fmtPct(discPct)}</td>
+    <td>${avgSoldPriceAll===null?'—':'₹'+Math.round(avgSoldPriceAll).toLocaleString('en-IN')}</td>
+    <td>${avgAvailPriceAll===null?'—':'₹'+Math.round(avgAvailPriceAll).toLocaleString('en-IN')}</td>
     <td>${fmtNum(t.cancelledUnits)}</td>
   `;
 }
