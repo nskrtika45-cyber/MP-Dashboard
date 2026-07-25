@@ -1006,38 +1006,50 @@ async function tryLoadPublishedData(){
 
 const ROLE_LABELS = { admin: 'Admin', mis: 'MIS Team', management: 'Management' };
 const UPLOAD_ROLES = ['admin', 'mis']; // roles that get upload/publish access, same as MIS
+let authStateGeneration = 0; // guards against onAuthStateChanged firing more than once in quick
+  // succession (Firebase does this on token refresh, etc.) — without this, two overlapping calls
+  // can race: one removes an element while the other is still mid-way through touching it.
+function setStyle(id, prop, value){ const el = document.getElementById(id); if(el) el.style[prop] = value; }
+function removeEl(id){ const el = document.getElementById(id); if(el) el.remove(); }
 
-async function enterRole(role, user){
+async function enterRole(role, user, myGeneration){
   currentRole = role;
   currentUser = user;
-  document.getElementById('roleGate').style.display = 'none';
-  document.getElementById('pendingScreen').style.display = 'none';
-  document.getElementById('appShell').style.display = 'block';
+  setStyle('roleGate','display','none');
+  setStyle('pendingScreen','display','none');
+  setStyle('appShell','display','block');
   const indicator = document.getElementById('roleIndicator');
   const adminLink = role === 'admin' ? `<button id="manageUsersBtn" class="admin-link">Manage users</button>` : '';
-  indicator.innerHTML = `${adminLink}<span class="badge">${ROLE_LABELS[role] || role} &middot; ${user.email}</span><button id="signOutBtn">Sign out</button>`;
-  document.getElementById('signOutBtn').addEventListener('click', ()=> auth.signOut());
-  if(role === 'admin'){
-    document.getElementById('manageUsersBtn').addEventListener('click', toggleUsersPanel);
+  if(indicator){
+    indicator.innerHTML = `${adminLink}<span class="badge">${ROLE_LABELS[role] || role} &middot; ${user.email}</span><button id="signOutBtn">Sign out</button>`;
+    const soBtn = document.getElementById('signOutBtn');
+    if(soBtn) soBtn.addEventListener('click', ()=> auth.signOut());
+    if(role === 'admin'){
+      const muBtn = document.getElementById('manageUsersBtn');
+      if(muBtn) muBtn.addEventListener('click', toggleUsersPanel);
+    }
   }
 
   if(!UPLOAD_ROLES.includes(role)){
     // Remove the upload UI from the DOM entirely for Management, not just hide it.
-    const uc = document.getElementById('uploadCard'); if(uc) uc.remove();
-    const lb = document.getElementById('loadedBar'); if(lb) lb.remove();
+    removeEl('uploadCard');
+    removeEl('loadedBar');
     const loaded = await tryLoadPublishedData();
-    document.getElementById('dashboard').style.display = loaded ? 'block' : 'none';
-    document.getElementById('emptyState').style.display = loaded ? 'none' : 'block';
+    if(myGeneration !== authStateGeneration) return; // a newer sign-in event has since taken over
+    setStyle('dashboard','display', loaded ? 'block' : 'none');
+    setStyle('emptyState','display', loaded ? 'none' : 'block');
   } else {
-    const es = document.getElementById('emptyState'); if(es) es.remove();
+    removeEl('emptyState');
     const loaded = await tryLoadPublishedData();
+    if(myGeneration !== authStateGeneration) return; // a newer sign-in event has since taken over
     if(loaded){
-      document.getElementById('uploadCard').style.display = 'none';
-      document.getElementById('loadedBar').style.display = 'flex';
-      document.getElementById('loadedNames').innerHTML = lastPublished.files.length
+      setStyle('uploadCard','display','none');
+      setStyle('loadedBar','display','flex');
+      const namesEl = document.getElementById('loadedNames');
+      if(namesEl) namesEl.innerHTML = lastPublished.files.length
         ? `Showing published dashboard (${lastPublished.files.join(' + ')})`
         : 'Showing published dashboard';
-      document.getElementById('dashboard').style.display = 'block';
+      setStyle('dashboard','display','block');
     }
     // else: leave the default upload-card visible, nothing published yet
   }
@@ -1119,11 +1131,13 @@ document.getElementById('preAssignBtn').addEventListener('click', async ()=>{
 
 /* ---- Pending / waiting-for-approval screen ---- */
 function showPendingScreen(user, isUnknownRole){
-  document.getElementById('roleGate').style.display = 'none';
-  document.getElementById('appShell').style.display = 'none';
-  document.getElementById('pendingScreen').style.display = 'flex';
-  document.getElementById('pendingUidText').textContent = user.uid;
-  document.getElementById('pendingBanner').innerHTML = isUnknownRole
+  setStyle('roleGate','display','none');
+  setStyle('appShell','display','none');
+  setStyle('pendingScreen','display','flex');
+  const uidEl = document.getElementById('pendingUidText');
+  if(uidEl) uidEl.textContent = user.uid;
+  const bannerEl = document.getElementById('pendingBanner');
+  if(bannerEl) bannerEl.innerHTML = isUnknownRole
     ? `<b>No access assigned.</b> Contact your administrator — this account has an unrecognised access level.`
     : `<b>Waiting for approval.</b> ${user.email} has signed in but your administrator hasn't granted access yet. Ask them to assign your role, then click Refresh.`;
 }
@@ -1156,11 +1170,12 @@ document.getElementById('loginForm').addEventListener('submit', async (e)=>{
 });
 
 auth.onAuthStateChanged(async (user)=>{
+  const myGeneration = ++authStateGeneration;
   const btn = document.getElementById('loginSubmitBtn');
   if(!user){
-    document.getElementById('roleGate').style.display = 'flex';
-    document.getElementById('pendingScreen').style.display = 'none';
-    document.getElementById('appShell').style.display = 'none';
+    setStyle('roleGate','display','flex');
+    setStyle('pendingScreen','display','none');
+    setStyle('appShell','display','none');
     if(btn){ btn.disabled = false; btn.textContent = 'Sign in'; }
     return;
   }
@@ -1168,6 +1183,7 @@ auth.onAuthStateChanged(async (user)=>{
   try{
     const roleDocRef = db.collection('roles').doc(user.uid);
     const roleDoc = await roleDocRef.get();
+    if(myGeneration !== authStateGeneration) return; // a newer auth event has since taken over
     let role;
     if(roleDoc.exists){
       role = roleDoc.data().role;
@@ -1175,18 +1191,19 @@ auth.onAuthStateChanged(async (user)=>{
       // First time this account has ever signed in — register as "pending" so an admin can
       // find and approve it. Firestore rules only allow self-creating with role "pending".
       await roleDocRef.set({ role: 'pending', email: user.email });
+      if(myGeneration !== authStateGeneration) return;
       role = 'pending';
     }
     if(role === 'admin' || role === 'mis' || role === 'management'){
-      await enterRole(role, user);
+      await enterRole(role, user, myGeneration);
     } else {
       showPendingScreen(user, role !== 'pending');
     }
   }catch(err){
     console.error('Role lookup failed', err);
+    if(myGeneration !== authStateGeneration) return;
     const errEl = document.getElementById('loginError');
-    errEl.textContent = 'Could not verify account access: ' + err.message;
-    errEl.style.display = 'block';
+    if(errEl){ errEl.textContent = 'Could not verify account access: ' + err.message; errEl.style.display = 'block'; }
     if(btn){ btn.disabled = false; btn.textContent = 'Sign in'; }
     await auth.signOut();
   }
