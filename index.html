@@ -472,17 +472,36 @@
       <div class="section-title"><h2>Stock Position</h2><div class="line"></div></div>
       <div class="chart-grid">
         <div class="chart-card"><h3>Unit stock status — all projects</h3><div class="wrap tall"><canvas id="chartStockDonut"></canvas></div></div>
-        <div class="chart-card"><h3>Sold vs available area by project (top 15, sq.ft)</h3><div class="wrap tall"><canvas id="chartSoldAvailArea"></canvas></div></div>
+        <div class="chart-card"><h3>Sold vs unsold area by project (top 15, sq.ft)</h3><div class="wrap tall"><canvas id="chartSoldAvailArea"></canvas></div></div>
       </div>
 
-      <div class="section-title"><h2>Cancellations &amp; Discount</h2><div class="line"></div></div>
+      <div class="section-title group"><h2>Sold</h2><div class="line"></div></div>
+
+      <div class="kpi-grid" id="kpiGridSold"></div>
+
+      <div class="section-title"><h2>Sold Value by Project</h2><div class="line"></div></div>
       <div class="chart-grid">
-        <div class="chart-card"><h3>Cancelled bookings by project (top 15)</h3><div class="wrap"><canvas id="chartCancelled"></canvas></div><p class="chart-note" id="cancelNote"></p></div>
-        <div class="chart-card"><h3>Discount given (top 12 projects by %)</h3><div class="wrap"><canvas id="chartDiscount"></canvas></div></div>
+        <div class="chart-card"><h3>Sold value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartSoldValue"></canvas></div></div>
+        <div class="chart-card"><h3>Sold value by financial year (₹ Cr, by booking date)</h3><div class="wrap tall"><canvas id="chartSoldFY"></canvas></div></div>
       </div>
-      <div class="chart-grid" style="margin-top:18px;">
-        <div class="chart-card"><h3>Discount on cancelled bookings by project (top 15, ₹ Cr)</h3><div class="wrap"><canvas id="chartCancelDiscountProject"></canvas></div></div>
-        <div class="chart-card"><h3>Discount on cancelled bookings by financial year (₹ Cr, by booking date)</h3><div class="wrap"><canvas id="chartCancelDiscountFY"></canvas></div></div>
+
+      <div class="section-title group" id="overviewBookingsHeader"><h2>Bookings</h2><div class="line"></div></div>
+      <div id="overviewBookingsSection">
+
+      <div class="kpi-grid" id="kpiGridBookings"></div>
+
+      <div class="section-title"><h2>Bookings by Project &amp; Financial Year</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="chart-card"><h3>Booking value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartBookingProject"></canvas></div></div>
+        <div class="chart-card"><h3>Booking value by financial year (₹ Cr)</h3><div class="wrap tall"><canvas id="chartBookingFY"></canvas></div></div>
+      </div>
+
+      <div class="section-title"><h2>Unit Type &amp; Area</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="chart-card"><h3>Booking value by unit type (₹ Cr)</h3><div class="wrap tall"><canvas id="chartBookingUnitType"></canvas></div></div>
+        <div class="chart-card"><h3>Area booked by project (top 15, sq.ft)</h3><div class="wrap tall"><canvas id="chartBookingArea"></canvas></div></div>
+      </div>
+
       </div>
 
       <div class="section-title"><h2>Project-wise Detail</h2><div class="line"></div></div>
@@ -528,14 +547,6 @@
       <div class="section-title group"><h2>Sold</h2><div class="line"></div></div>
 
 
-      <div class="kpi-grid" id="kpiGridSold"></div>
-
-      <div class="section-title"><h2>Sold Value by Project</h2><div class="line"></div></div>
-      <div class="chart-grid">
-        <div class="chart-card"><h3>Sold value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartSoldValue"></canvas></div></div>
-        <div class="chart-card"><h3>Sold value by financial year (₹ Cr, by booking date)</h3><div class="wrap tall"><canvas id="chartSoldFY"></canvas></div></div>
-      </div>
-
       <div class="section-title"><h2>Sold — Project-wise Detail</h2><div class="line"></div></div>
       <div class="table-toolbar">
         <input type="text" id="soldSearchBox" placeholder="Search project name...">
@@ -553,20 +564,6 @@
       <div class="section-title group" id="salesBookingsHeader"><h2>Bookings</h2><div class="line"></div></div>
       <div id="salesBookingsSection">
 
-
-      <div class="kpi-grid" id="kpiGridBookings"></div>
-
-      <div class="section-title"><h2>Bookings by Project &amp; Financial Year</h2><div class="line"></div></div>
-      <div class="chart-grid">
-        <div class="chart-card"><h3>Booking value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartBookingProject"></canvas></div></div>
-        <div class="chart-card"><h3>Booking value by financial year (₹ Cr)</h3><div class="wrap tall"><canvas id="chartBookingFY"></canvas></div></div>
-      </div>
-
-      <div class="section-title"><h2>Unit Type &amp; Area</h2><div class="line"></div></div>
-      <div class="chart-grid">
-        <div class="chart-card"><h3>Booking value by unit type (₹ Cr)</h3><div class="wrap tall"><canvas id="chartBookingUnitType"></canvas></div></div>
-        <div class="chart-card"><h3>Area booked by project (top 15, sq.ft)</h3><div class="wrap tall"><canvas id="chartBookingArea"></canvas></div></div>
-      </div>
 
       <div class="section-title"><h2>Unit-wise Booking Detail</h2><div class="line"></div></div>
       <div class="table-toolbar">
@@ -591,10 +588,10 @@
 
       <div class="kpi-grid" id="kpiGridAvail"></div>
 
-      <div class="section-title"><h2>Available (Unsold) Value by Project</h2><div class="line"></div></div>
+      <div class="section-title"><h2>Unsold Value by Project</h2><div class="line"></div></div>
       <div class="chart-grid">
-        <div class="chart-card"><h3>Available value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartAvailValue"></canvas></div></div>
-        <div class="chart-card"><h3>Available area by project (top 15, sq.ft)</h3><div class="wrap tall"><canvas id="chartAvailArea"></canvas></div></div>
+        <div class="chart-card"><h3>Unsold value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartAvailValue"></canvas></div></div>
+        <div class="chart-card"><h3>Unsold area by project (top 15, sq.ft)</h3><div class="wrap tall"><canvas id="chartAvailArea"></canvas></div></div>
       </div>
 
       <div class="section-title"><h2>Unsold Breakdown</h2><div class="line"></div></div>
@@ -606,7 +603,7 @@
         <div class="chart-card"><h3>Unsold value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartUnsoldProject"></canvas></div></div>
       </div>
 
-      <div class="section-title"><h2>Available — Project-wise Detail</h2><div class="line"></div></div>
+      <div class="section-title"><h2>Unsold — Project-wise Detail</h2><div class="line"></div></div>
       <div class="table-toolbar">
         <input type="text" id="availSearchBox" placeholder="Search project name...">
       </div>
@@ -648,7 +645,41 @@
 <!-- ================= CRM PAGE (Agreement Register + Collection & Outstanding) ================= -->
     <div class="page" id="page-crm">
 
-      <div class="section-title group"><h2>Project-wise CRM Detail</h2><div class="line"></div></div>
+      <div class="section-title group"><h2>CRM Dashboard</h2><div class="line"></div></div>
+
+      <div id="crmAgreementDashboard">
+
+      <div class="kpi-grid" id="kpiGridAgreement"></div>
+
+      <div class="section-title"><h2>Pipeline Status</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="chart-card"><h3>Units by ERP unit status (all categories, as given)</h3><div class="wrap xtall"><canvas id="chartStage"></canvas></div></div>
+        <div class="chart-card"><h3>Pending registration by project (top 15, Regn Date blank)</h3><div class="wrap tall"><canvas id="chartPendingRegn"></canvas></div></div>
+      </div>
+
+      </div>
+
+      <div id="crmCollectionDashboard">
+
+      <div class="kpi-grid" id="kpiGridCollection"></div>
+
+      <div class="section-title"><h2>Collections by Project</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="chart-card"><h3>Collected value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartCollection"></canvas></div></div>
+        <div class="chart-card"><h3>Collection by financial year (₹ Cr, by receipt date)</h3><div class="wrap tall"><canvas id="chartCollectionFY"></canvas></div></div>
+      </div>
+
+      <div class="section-title"><h2>Outstanding by Project</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="chart-card"><h3>Outstanding balance by project (top 15, sold value − collected)</h3><div class="wrap tall"><canvas id="chartOutstanding"></canvas></div></div>
+        <div class="chart-card"><h3>Collected vs outstanding by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartCollectedVsOutstanding"></canvas></div></div>
+      </div>
+
+      </div>
+
+      <div class="section-title group"><h2>CRM Data</h2><div class="line"></div></div>
+
+      <div class="section-title"><h2>Project-wise CRM Detail</h2><div class="line"></div></div>
       <div class="table-toolbar">
         <input type="text" id="crmProjectSearchBox" placeholder="Search project name...">
       </div>
@@ -662,17 +693,7 @@
         </div>
       </div>
 
-      <div class="section-title group" id="crmAgreementHeader"><h2>Agreement Register</h2><div class="line"></div></div>
-      <div id="crmAgreementSection">
-
-
-      <div class="kpi-grid" id="kpiGridAgreement"></div>
-
-      <div class="section-title"><h2>Pipeline Status</h2><div class="line"></div></div>
-      <div class="chart-grid">
-        <div class="chart-card"><h3>Units by ERP unit status (all categories, as given)</h3><div class="wrap xtall"><canvas id="chartStage"></canvas></div></div>
-        <div class="chart-card"><h3>Pending registration by project (top 15, Regn Date blank)</h3><div class="wrap tall"><canvas id="chartPendingRegn"></canvas></div></div>
-      </div>
+      <div id="crmAgreementData">
 
       <div class="section-title"><h2>Unit-wise Agreement Detail</h2><div class="line"></div></div>
       <div class="table-toolbar">
@@ -695,23 +716,7 @@
 
       </div>
 
-      <div class="section-title group" id="crmCollectionHeader"><h2>Collection &amp; Outstanding</h2><div class="line"></div></div>
-      <div id="crmCollectionSection">
-
-
-      <div class="kpi-grid" id="kpiGridCollection"></div>
-
-      <div class="section-title"><h2>Collections by Project</h2><div class="line"></div></div>
-      <div class="chart-grid">
-        <div class="chart-card"><h3>Collected value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartCollection"></canvas></div></div>
-        <div class="chart-card"><h3>Collection by financial year (₹ Cr, by receipt date)</h3><div class="wrap tall"><canvas id="chartCollectionFY"></canvas></div></div>
-      </div>
-
-      <div class="section-title"><h2>Outstanding by Project</h2><div class="line"></div></div>
-      <div class="chart-grid">
-        <div class="chart-card"><h3>Outstanding balance by project (top 15, sold value − collected)</h3><div class="wrap tall"><canvas id="chartOutstanding"></canvas></div></div>
-        <div class="chart-card"><h3>Collected vs outstanding by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartCollectedVsOutstanding"></canvas></div></div>
-      </div>
+      <div id="crmCollectionData">
 
       <div class="section-title"><h2>Outstanding — Project-wise Detail</h2><div class="line"></div></div>
       <div class="table-toolbar">
@@ -963,20 +968,25 @@ function updateSectionVisibility(){
 
   document.getElementById('crmTabBtn').style.display = (hasAgreement || hasCollectionOrOutstanding) ? '' : 'none';
 
-  const agreementHeader = document.getElementById('crmAgreementHeader');
-  const agreementSection = document.getElementById('crmAgreementSection');
-  if(agreementHeader) agreementHeader.style.display = hasAgreement ? '' : 'none';
-  if(agreementSection) agreementSection.style.display = hasAgreement ? '' : 'none';
+  const agreementDashboard = document.getElementById('crmAgreementDashboard');
+  const agreementDataSection = document.getElementById('crmAgreementData');
+  if(agreementDashboard) agreementDashboard.style.display = hasAgreement ? '' : 'none';
+  if(agreementDataSection) agreementDataSection.style.display = hasAgreement ? '' : 'none';
 
-  const collectionHeader = document.getElementById('crmCollectionHeader');
-  const collectionSection = document.getElementById('crmCollectionSection');
-  if(collectionHeader) collectionHeader.style.display = hasCollectionOrOutstanding ? '' : 'none';
-  if(collectionSection) collectionSection.style.display = hasCollectionOrOutstanding ? '' : 'none';
+  const collectionDashboard = document.getElementById('crmCollectionDashboard');
+  const collectionDataSection = document.getElementById('crmCollectionData');
+  if(collectionDashboard) collectionDashboard.style.display = hasCollectionOrOutstanding ? '' : 'none';
+  if(collectionDataSection) collectionDataSection.style.display = hasCollectionOrOutstanding ? '' : 'none';
 
   const bookingsHeader = document.getElementById('salesBookingsHeader');
   const bookingsSection = document.getElementById('salesBookingsSection');
   if(bookingsHeader) bookingsHeader.style.display = hasBookings ? '' : 'none';
   if(bookingsSection) bookingsSection.style.display = hasBookings ? '' : 'none';
+
+  const overviewBookingsHeader = document.getElementById('overviewBookingsHeader');
+  const overviewBookingsSection = document.getElementById('overviewBookingsSection');
+  if(overviewBookingsHeader) overviewBookingsHeader.style.display = hasBookings ? '' : 'none';
+  if(overviewBookingsSection) overviewBookingsSection.style.display = hasBookings ? '' : 'none';
 }
 
 async function tryLoadPublishedData(){
@@ -2057,7 +2067,7 @@ function renderFilterSummary(){
   if(!chips.length){ el.style.display='none'; el.innerHTML=''; return; }
   el.style.display='flex';
   el.innerHTML = chips.map(c=>`<span class="filter-chip">${c}</span>`).join('') +
-    `<span class="filter-note">Applies to booking-dated activity. Available inventory and the Collection unit table stay at full history for the selected project. "By financial year" trend charts always show the full timeline for the selected project.</span>`;
+    `<span class="filter-note">Applies to booking-dated activity. Unsold inventory and the Collection unit table stay at full history for the selected project. "By financial year" trend charts always show the full timeline for the selected project.</span>`;
 }
 
 document.getElementById('filterProject').addEventListener('change', function(){
@@ -2142,10 +2152,10 @@ function renderKPIs(){
   const t = grandTotals();
   const cards = [
     {lbl:'Projects', val: t.projects, sub: `${masterData.filter(m=>m.totalUnits>0).length} with active stock`},
-    {lbl:'Total Units', val: fmtNum(t.totalUnits), sub: `<b class="pos">${fmtNum(t.soldUnits)}</b> sold &middot; ${fmtNum(t.availUnits)} available`},
-    {lbl:'Total Saleable Area', val: fmtNum(t.totalArea)+' <span style="font-size:13px;color:var(--muted);">sq.ft</span>', sub:'Across sold, available &amp; blocked stock'},
+    {lbl:'Total Units', val: fmtNum(t.totalUnits), sub: `<b class="pos">${fmtNum(t.soldUnits)}</b> sold &middot; ${fmtNum(t.availUnits)} unsold`},
+    {lbl:'Total Saleable Area', val: fmtNum(t.totalArea)+' <span style="font-size:13px;color:var(--muted);">sq.ft</span>', sub:'Across sold, unsold &amp; blocked stock'},
     {lbl:'Sold Value', val: fmtINRCr(t.soldValue), sub: `of ${fmtINRCr(t.totalValue)} total portfolio value`},
-    {lbl:'Available Value', val: fmtINRCr(t.availValue), sub:'Unsold inventory at current rates'},
+    {lbl:'Unsold Value', val: fmtINRCr(t.availValue), sub:'Unsold inventory at current rates'},
   ];
   document.getElementById('kpiGrid').innerHTML = cards.map(c=>`
     <div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>
@@ -2158,7 +2168,7 @@ function renderHero(){
   const soldPct = 100 - availPct;
   document.getElementById('heroSplit').innerHTML = `
     <div class="hero-half avail">
-      <div class="lbl">Available Value</div>
+      <div class="lbl">Unsold Value</div>
       <div class="big num">${fmtINRCr(t.availValue)}</div>
       <div class="sub2">${fmtNum(t.availUnits)} units &middot; ${availPct.toFixed(1)}% of portfolio</div>
       <div class="hero-bar"><div class="fill" style="width:${availPct}%"></div></div>
@@ -2212,7 +2222,7 @@ function renderCharts(){
   chartClearEmptyMessage('chartStockDonut');
   charts.donut = new Chart(document.getElementById('chartStockDonut'), {
     type:'doughnut',
-    data:{ labels:['Sold','Available','Blocked'], datasets:[{ data:[t.soldUnits,t.availUnits,t.blockedUnits], backgroundColor:[teal,gold,brick], borderWidth:2, borderColor:'#fff' }] },
+    data:{ labels:['Sold','Unsold','Blocked'], datasets:[{ data:[t.soldUnits,t.availUnits,t.blockedUnits], backgroundColor:[teal,gold,brick], borderWidth:2, borderColor:'#fff' }] },
     options:{
       responsive:true, maintainAspectRatio:false,
       plugins:{
@@ -2237,7 +2247,7 @@ function renderCharts(){
       labels: byArea.map(m=>m.project),
       datasets:[
         {label:'Sold', data: byArea.map(m=>m.soldArea), backgroundColor: teal, stack:'a'},
-        {label:'Available', data: byArea.map(m=>m.availArea), backgroundColor: gold, stack:'a'},
+        {label:'Unsold', data: byArea.map(m=>m.availArea), backgroundColor: gold, stack:'a'},
       ]
     },
     options:{
@@ -2500,10 +2510,10 @@ function renderAvailablePage(){
   const t = grandTotals();
   const availArea = masterData.reduce((a,m)=>a+(m.availArea||0),0);
   document.getElementById('kpiGridAvail').innerHTML = [
-    {lbl:'Available Units', val: fmtNum(t.availUnits), sub:`across ${masterData.filter(m=>m.availUnits>0).length} projects`},
-    {lbl:'Available Value', val: fmtINRCr(t.availValue), sub:'Unsold inventory at current rates'},
-    {lbl:'Available Area', val: fmtNum(availArea)+' sq.ft', sub:'Saleable area available'},
-    {lbl:'Avg Rate', val: availArea ? '₹'+Math.round(t.availValue/availArea).toLocaleString('en-IN') : '—', sub:'per sq.ft, available stock'},
+    {lbl:'Unsold Units', val: fmtNum(t.availUnits), sub:`across ${masterData.filter(m=>m.availUnits>0).length} projects`},
+    {lbl:'Unsold Value', val: fmtINRCr(t.availValue), sub:'Unsold inventory at current rates'},
+    {lbl:'Unsold Area', val: fmtNum(availArea)+' sq.ft', sub:'Saleable area unsold'},
+    {lbl:'Avg Rate', val: availArea ? '₹'+Math.round(t.availValue/availArea).toLocaleString('en-IN') : '—', sub:'per sq.ft, unsold stock'},
   ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
 
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
@@ -2512,12 +2522,12 @@ function renderAvailablePage(){
   const byAvail = [...masterData].filter(m=>m.availValue>0).sort((a,b)=>b.availValue-a.availValue).slice(0,15);
   destroyChart('availValue');
   if(byAvail.length === 0){
-    chartEmptyMessage('chartAvailValue', 'No available inventory for the current filter.');
+    chartEmptyMessage('chartAvailValue', 'No unsold inventory for the current filter.');
   } else {
   chartClearEmptyMessage('chartAvailValue');
   charts.availValue = new Chart(document.getElementById('chartAvailValue'), {
     type:'bar',
-    data:{ labels: byAvail.map(m=>m.project), datasets:[{ label:'Available Value', data: byAvail.map(m=>m.availValue/1e7), backgroundColor: gold }] },
+    data:{ labels: byAvail.map(m=>m.project), datasets:[{ label:'Unsold Value', data: byAvail.map(m=>m.availValue/1e7), backgroundColor: gold }] },
     options:{
       indexAxis:'y', responsive:true, maintainAspectRatio:false,
       scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
@@ -2533,12 +2543,12 @@ function renderAvailablePage(){
   const byAvailArea = [...masterData].filter(m=>m.availArea>0).sort((a,b)=>b.availArea-a.availArea).slice(0,15);
   destroyChart('availArea');
   if(byAvailArea.length === 0){
-    chartEmptyMessage('chartAvailArea', 'No available inventory for the current filter.');
+    chartEmptyMessage('chartAvailArea', 'No unsold inventory for the current filter.');
   } else {
   chartClearEmptyMessage('chartAvailArea');
   charts.availArea = new Chart(document.getElementById('chartAvailArea'), {
     type:'bar',
-    data:{ labels: byAvailArea.map(m=>m.project), datasets:[{ label:'Available Area', data: byAvailArea.map(m=>m.availArea), backgroundColor: gold }] },
+    data:{ labels: byAvailArea.map(m=>m.project), datasets:[{ label:'Unsold Area', data: byAvailArea.map(m=>m.availArea), backgroundColor: gold }] },
     options:{
       responsive:true, maintainAspectRatio:false,
       scales:{ x:{ ticks:{ maxRotation:55, minRotation:55, font:{size:10} }, grid:{display:false} }, y:{ title:{display:true,text:'sq.ft'}, grid:{color:'#EEF1F5'} } },
@@ -2552,14 +2562,14 @@ function renderAvailablePage(){
     sortStateKey:'avail',
     columns:[
       {key:'project', label:'Project', align:'left'},
-      {key:'availUnits', label:'Available Units', fmt:fmtNum},
-      {key:'availArea', label:'Available Area (sq.ft)', fmt:fmtNum},
-      {key:'availValue', label:'Available Value', fmt:fmtINRCr},
+      {key:'availUnits', label:'Unsold Units', fmt:fmtNum},
+      {key:'availArea', label:'Unsold Area (sq.ft)', fmt:fmtNum},
+      {key:'availValue', label:'Unsold Value', fmt:fmtINRCr},
       {key:'availRate', label:'Avg Rate (₹/sq.ft)', fmt:(n)=> n===null?'—':'₹'+Math.round(n).toLocaleString('en-IN')},
     ],
     rowsSource: masterData.filter(m=>m.availUnits>0).map(m=>({...m, availRate: m.availArea ? m.availValue/m.availArea : null})),
     defaultSort:{key:'availValue', dir:-1},
-    totalsLabel:'projects with available units'
+    totalsLabel:'projects with unsold units'
   });
 }
 
@@ -3018,8 +3028,8 @@ function renderSalesProjectTable(){
       {key:'project', label:'Project', align:'left'},
       {key:'soldUnits', label:'Sold Units', fmt:fmtNum},
       {key:'soldValue', label:'Sold Value', fmt:fmtINRCr},
-      {key:'availUnits', label:'Available Units', fmt:fmtNum},
-      {key:'availValue', label:'Available Value', fmt:fmtINRCr},
+      {key:'availUnits', label:'Unsold Units', fmt:fmtNum},
+      {key:'availValue', label:'Unsold Value', fmt:fmtINRCr},
     ],
     rowsSource: masterData,
     defaultSort:{key:'soldValue', dir:-1},
@@ -3183,14 +3193,14 @@ const columns = [
   {key:'project', label:'Project', align:'left'},
   {key:'totalUnits', label:'Total Units', fmt:fmtNum},
   {key:'soldUnits', label:'Sold', fmt:fmtNum},
-  {key:'availUnits', label:'Available', fmt:fmtNum},
+  {key:'availUnits', label:'Unsold', fmt:fmtNum},
   {key:'blockedUnits', label:'Blocked', fmt:fmtNum},
   {key:'totalArea', label:'Total Area (sq.ft)', fmt:fmtNum},
   {key:'soldValue', label:'Sold Value', fmt:fmtINRCr},
-  {key:'availValue', label:'Available Value', fmt:fmtINRCr},
+  {key:'availValue', label:'Unsold Value', fmt:fmtINRCr},
   {key:'totalValue', label:'Total Value', fmt:fmtINRCr},
   {key:'avgSoldPrice', label:'Avg Sold Price (₹/sq.ft)', fmt:(n)=> n===null?'—':'₹'+Math.round(n).toLocaleString('en-IN')},
-  {key:'avgAvailPrice', label:'Avg Available Price (₹/sq.ft)', fmt:(n)=> n===null?'—':'₹'+Math.round(n).toLocaleString('en-IN')},
+  {key:'avgAvailPrice', label:'Avg Unsold Price (₹/sq.ft)', fmt:(n)=> n===null?'—':'₹'+Math.round(n).toLocaleString('en-IN')},
   {key:'cancelledUnits', label:'Cancelled', fmt:fmtNum},
 ];
 
@@ -3258,9 +3268,9 @@ document.getElementById('hideEmpty').addEventListener('change', renderTable);
 document.getElementById('exportBtn').addEventListener('click', ()=>{
   const exportRows = masterData.map(m=>({
     'Project': m.project,
-    'Total Units': m.totalUnits, 'Sold Units': m.soldUnits, 'Available Units': m.availUnits, 'Blocked Units': m.blockedUnits,
-    'Total Area (sq.ft)': m.totalArea, 'Sold Area': m.soldArea, 'Available Area': m.availArea, 'Blocked Area': m.blockedArea,
-    'Sold Value (₹)': m.soldValue, 'Available Value (₹)': m.availValue, 'Total Value (₹)': m.totalValue,
+    'Total Units': m.totalUnits, 'Sold Units': m.soldUnits, 'Unsold Units': m.availUnits, 'Blocked Units': m.blockedUnits,
+    'Total Area (sq.ft)': m.totalArea, 'Sold Area': m.soldArea, 'Unsold Area': m.availArea, 'Blocked Area': m.blockedArea,
+    'Sold Value (₹)': m.soldValue, 'Unsold Value (₹)': m.availValue, 'Total Value (₹)': m.totalValue,
     'Before Discount (₹)': m.beforeDiscount, 'After Discount (₹)': m.afterDiscount, 'Discount (₹)': m.discountValue, 'Discount %': m.discountPct===null?null:Number(m.discountPct.toFixed(2)),
     'Cancelled Bookings': m.cancelledUnits,
   }));
