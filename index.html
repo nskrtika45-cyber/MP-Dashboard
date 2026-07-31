@@ -258,6 +258,10 @@
 
   .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:14px;}
   @media (max-width:620px){.kpi-grid{grid-template-columns:repeat(2,1fr);}}
+  .sold-toggle{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;background:var(--navy-pale);border:1px solid var(--border);border-radius:8px;font-size:13px;}
+  .sold-toggle-label{font-weight:600;color:var(--navy);}
+  .sold-toggle label{display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink);}
+  .sold-toggle input[type="radio"]{accent-color:var(--gold);cursor:pointer;}
   .kpi{
     background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 16px 14px;
     position:relative;overflow:hidden;
@@ -417,10 +421,22 @@
         <div class="hint">Replaces the estimated Outstanding Balance on the Collection tab with the ERP's own Net Receivable figure</div>
         <input type="file" id="file6" accept=".xlsx">
       </label>
+      <label class="drop" id="drop7">
+        <div class="label">7 &middot; Customer Cancellation Report <span style="text-transform:none;font-weight:400;">(optional)</span></div>
+        <div class="fname" id="fname7">Click to choose file (.xlsx)</div>
+        <div class="hint">Adds a Sold Value toggle — with vs. without genuine cancellations (Customer Requested + Due to Non Payment only)</div>
+        <input type="file" id="file7" accept=".xlsx">
+      </label>
+      <label class="drop" id="drop8">
+        <div class="label">8 &middot; Sales MIS Report <span style="text-transform:none;font-weight:400;">(optional)</span></div>
+        <div class="fname" id="fname8">Click to choose file (.xlsx)</div>
+        <div class="hint">Adds Total Agreement Signed &amp; Total Agreement Registered counts and booking value to the CRM tab</div>
+        <input type="file" id="file8" accept=".xlsx">
+      </label>
     </div>
     <div class="btn-row">
       <button class="btn btn-primary" id="genBtn" disabled>Generate &amp; publish dashboard</button>
-      <span class="footer-note">Files 1 &amp; 2 are required each month; files 3–6 are optional and unlock extra tabs or detail. Publishing makes this visible to Management.</span>
+      <span class="footer-note">Files 1 &amp; 2 are required each month; files 3–8 are optional and unlock extra tabs or detail. Publishing makes this visible to Management.</span>
     </div>
     <div class="err" id="errMsg"></div>
     <div class="publish-status" id="publishStatus" style="display:none;"></div>
@@ -476,6 +492,12 @@
       </div>
 
       <div class="section-title group"><h2>Sold</h2><div class="line"></div></div>
+
+      <div class="sold-toggle" id="soldValueToggle" style="display:none;">
+        <span class="sold-toggle-label">Sold value:</span>
+        <label><input type="radio" name="soldValueMode" value="net" checked> Net of cancellations</label>
+        <label><input type="radio" name="soldValueMode" value="gross"> Including genuine cancellations</label>
+      </div>
 
       <div class="kpi-grid" id="kpiGridSold"></div>
 
@@ -814,7 +836,7 @@ const db = firebase.firestore();
 // Firestore caps each document at 1MiB. The combined RAW data can exceed that (it's already
 // ~1.4MB with 5 reports loaded), so each RAW.* array is stored as its own small document instead
 // of one big one — every individual piece has comfortable headroom to keep growing month to month.
-const RAW_KEYS = ['customerRecords','stockDict','stockUnitRecords','agreementRecords','collectionUnitRecords','collectionReceiptRecords','bookingRecords','outstandingRecords'];
+const RAW_KEYS = ['customerRecords','stockDict','stockUnitRecords','agreementRecords','collectionUnitRecords','collectionReceiptRecords','bookingRecords','outstandingRecords','cancellationRecords','salesMISRecords'];
 
 // Project -> physical location & property type, as supplied by MP Developers (not derivable from
 // any ERP report). Projects not in this list show under "Unmapped" in the Location Wise view
@@ -962,7 +984,7 @@ async function publishDashboardData(fileNames){
 }
 
 function updateSectionVisibility(){
-  const hasAgreement = RAW.agreementRecords.length > 0;
+  const hasAgreement = RAW.agreementRecords.length > 0 || RAW.salesMISRecords.length > 0;
   const hasCollectionOrOutstanding = RAW.collectionUnitRecords.length > 0 || RAW.outstandingRecords.length > 0;
   const hasBookings = RAW.bookingRecords.length > 0;
 
@@ -1235,7 +1257,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
   });
 });
 
-let file1Data = null, file2Data = null, file3Data = null, file4Data = null, file5Data = null, file6Data = null;
+let file1Data = null, file2Data = null, file3Data = null, file4Data = null, file5Data = null, file6Data = null, file7Data = null, file8Data = null;
 
 // RAW = unfiltered per-record data, parsed once when files load. Everything the dashboard renders
 // is derived from RAW by applyFiltersAndRender() so the Project / Financial Year / Month filters
@@ -1249,6 +1271,8 @@ let RAW = {
   collectionReceiptRecords: [],// Collection Sheet1: project, date, amount (used for the FY trend only)
   bookingRecords: [],          // Booking Report: project, bookingDate, value
   outstandingRecords: [],      // Outstanding Payments Report: project, unit, netReceivable (no dates — snapshot as-on-date)
+  cancellationRecords: [],     // Customer Cancellation Report: project, bookingDate, unitValue, cancellationDate, reason
+  salesMISRecords: [],         // Sales MIS Report: one sheet per project, project/customer/bookingDate/considerationAmount/agreementSigned/agreementRegistered
 };
 
 let filterState = { project: '', fy: '', month: '' };
@@ -1261,6 +1285,9 @@ let agreementData = [];
 let collectionData = [];
 let collectionFYData = [];
 let outstandingData = [];
+let genuineCancelledUnits = 0, genuineCancelledValue = 0;
+let salesMISData = [];
+let soldValueMode = 'net'; // 'net' = current sold value as-is; 'gross' = net + genuine cancellations added back
 let locationWiseData = [];
 let propertyWiseData = [];
 let bookingData = [];
@@ -1305,6 +1332,8 @@ wireDrop('drop3','file3','fname3', f=>{ file3Data = f; checkReady(); });
 wireDrop('drop4','file4','fname4', f=>{ file4Data = f; checkReady(); });
 wireDrop('drop5','file5','fname5', f=>{ file5Data = f; checkReady(); });
 wireDrop('drop6','file6','fname6', f=>{ file6Data = f; checkReady(); });
+wireDrop('drop7','file7','fname7', f=>{ file7Data = f; checkReady(); });
+wireDrop('drop8','file8','fname8', f=>{ file8Data = f; checkReady(); });
 
 function checkReady(){
   document.getElementById('genBtn').disabled = !(file1Data && file2Data);
@@ -1349,13 +1378,25 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
     } else {
       RAW.outstandingRecords = [];
     }
+    if(file7Data){
+      const wb7 = await readFileAsWB(file7Data);
+      RAW.cancellationRecords = parseCancellationReport(wb7);
+    } else {
+      RAW.cancellationRecords = [];
+    }
+    if(file8Data){
+      const wb8 = await readFileAsWB(file8Data);
+      RAW.salesMISRecords = parseSalesMISReport(wb8);
+    } else {
+      RAW.salesMISRecords = [];
+    }
     updateSectionVisibility();
 
     filterState = { project: '', fy: '', month: '' };
     populateFilterOptions();
     applyFiltersAndRender();
 
-    const fileNames = [file1Data.name, file2Data.name, file3Data && file3Data.name, file4Data && file4Data.name, file5Data && file5Data.name, file6Data && file6Data.name].filter(Boolean);
+    const fileNames = [file1Data.name, file2Data.name, file3Data && file3Data.name, file4Data && file4Data.name, file5Data && file5Data.name, file6Data && file6Data.name, file7Data && file7Data.name, file8Data && file8Data.name].filter(Boolean);
     document.getElementById('uploadCard').style.display='none';
     document.getElementById('loadedBar').style.display='flex';
     document.getElementById('loadedNames').textContent = 'Loaded ' + fileNames.join(' + ');
@@ -1863,6 +1904,95 @@ function parseOutstandingReport(wb){
   return records;
 }
 
+/* ============ CUSTOMER CANCELLATION REPORT PARSING ============ */
+// Flat, one-row-per-unit report (no marker rows / forward-fill — Project and Sub Project are
+// direct columns on every row). "Cancellation Reason" has four ERP categories; only "Customer
+// Requested" and "Due to Non Payment" are genuine cancellations for reporting purposes —
+// "ReBooking Cancellation" is really a unit transfer and "Other" is a data-entry mistake, so both
+// are parsed and kept on the record but excluded wherever a "genuine cancellation" total is built.
+const GENUINE_CANCELLATION_REASONS = ['Customer Requested', 'Due to Non Payment'];
+
+function parseCancellationReport(wb){
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = sheetToRows(ws);
+  let headerIdx = rows.findIndex(r => normalizeHeader(r[0]) === 'Customer Name');
+  if(headerIdx < 0) headerIdx = 3;
+  const headerRow = rows[headerIdx] || [];
+  const col = {};
+  headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
+  const projectIdx = col['Project Name'] !== undefined ? col['Project Name'] : 1;
+  const subProjectIdx = col['SubProject Name'] !== undefined ? col['SubProject Name'] : 2;
+  const unitNoIdx = col['Unit No'] !== undefined ? col['Unit No'] : 3;
+  const bookingDateIdx = col['Booking Date'] !== undefined ? col['Booking Date'] : 4;
+  const unitValueIdx = col['Unit Value'] !== undefined ? col['Unit Value'] : 8;
+  const cancellationDateIdx = col['Cancellation Date'] !== undefined ? col['Cancellation Date'] : 14;
+  const reasonIdx = col['Cancellation Reason'] !== undefined ? col['Cancellation Reason'] : 15;
+
+  const records = [];
+  for(let i=headerIdx+1; i<rows.length; i++){
+    const r = rows[i];
+    const customer = r[0];
+    if(customer === null || customer === '') continue;
+    const unitValue = r[unitValueIdx];
+    if(typeof unitValue !== 'number') continue;
+    const rawProject = r[projectIdx];
+    const subProject = r[subProjectIdx] || '';
+    const project = resolveProjectForSubProject(normalizeProjectName(rawProject), subProject);
+    const reason = (r[reasonIdx] || '').toString().trim();
+    records.push({
+      project: project || 'Unknown', subProject, unitNo: r[unitNoIdx] || '', customer,
+      bookingDate: r[bookingDateIdx] || '', unitValue,
+      cancellationDate: r[cancellationDateIdx] || '', reason,
+      isGenuine: GENUINE_CANCELLATION_REASONS.includes(reason),
+    });
+  }
+  return records;
+}
+
+/* ============ SALES MIS REPORT PARSING ============ */
+// Unlike every other report, this one has ONE SHEET PER PROJECT (dozens of sheets) rather than one
+// sheet with a Project column — so this loops every sheet and concatenates. Each sheet shares the
+// same column layout and ends with a "Total" row (Sl No. = the text "Total"), which is skipped by
+// requiring Sl No. to be numeric.
+
+function parseSalesMISReport(wb){
+  const records = [];
+  wb.SheetNames.forEach(sheetName=>{
+    const ws = wb.Sheets[sheetName];
+    const rows = sheetToRows(ws);
+    let headerIdx = rows.findIndex(r => normalizeHeader(r[1]) === 'Project Name');
+    if(headerIdx < 0) headerIdx = 2;
+    const headerRow = rows[headerIdx] || [];
+    const col = {};
+    headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
+    const projectIdx = col['Project Name'] !== undefined ? col['Project Name'] : 1;
+    const subProjectIdx = col['Sub Project Name'] !== undefined ? col['Sub Project Name'] : 2;
+    const customerIdx = col['Customer Name'] !== undefined ? col['Customer Name'] : 3;
+    const unitNoIdx = col['Unit No.'] !== undefined ? col['Unit No.'] : 4;
+    const bookingDateIdx = col['Booking Date'] !== undefined ? col['Booking Date'] : 5;
+    const considerationIdx = col['Consideration Amount (A)'] !== undefined ? col['Consideration Amount (A)'] : 8;
+    const signedIdx = col['Sales Agreement Signed'] !== undefined ? col['Sales Agreement Signed'] : 24;
+    const registeredIdx = col['Sales Agreement Registered'] !== undefined ? col['Sales Agreement Registered'] : 25;
+
+    for(let i=headerIdx+1; i<rows.length; i++){
+      const r = rows[i];
+      if(typeof r[0] !== 'number') continue; // skips the per-sheet "Total" row and any blank rows
+      const considerationAmount = r[considerationIdx];
+      if(typeof considerationAmount !== 'number') continue;
+      const rawProject = r[projectIdx];
+      const subProject = r[subProjectIdx] || '';
+      const project = resolveProjectForSubProject(normalizeProjectName(rawProject), subProject);
+      const isYes = v => (''+(v||'')).trim().toUpperCase() === 'Y';
+      records.push({
+        project: project || 'Unknown', subProject, customer: r[customerIdx] || '', unitNo: r[unitNoIdx] || '',
+        bookingDate: r[bookingDateIdx] || '', considerationAmount,
+        agreementSigned: isYes(r[signedIdx]), agreementRegistered: isYes(r[registeredIdx]),
+      });
+    }
+  });
+  return records;
+}
+
 function buildMasterTable(discount, stock, value){
   const allProjects = new Set([...Object.keys(stock), ...Object.keys(value), ...Object.keys(discount)]);
   const master = [];
@@ -2041,6 +2171,18 @@ function applyFiltersAndRender(){
 
   // ---- Outstanding Payments Report — snapshot "as on date", Project-only (no dates to filter by) ----
   outstandingData = filterProjectOnly(RAW.outstandingRecords);
+
+  // ---- Customer Cancellation Report — genuine cancellations only (Customer Requested + Due to Non
+  // Payment; excludes ReBooking Cancellation [a unit transfer] and Other [data-entry mistakes]).
+  // Filtered by the cancelled unit's own booking date, same basis as the Sold figures, so "gross"
+  // sold value for a period = net sold value + genuinely-cancelled value from bookings placed in
+  // that same period.
+  const genuineCancellations = filterFull(RAW.cancellationRecords.filter(r=>r.isGenuine), 'bookingDate');
+  genuineCancelledUnits = genuineCancellations.length;
+  genuineCancelledValue = genuineCancellations.reduce((a,r)=>a+r.unitValue, 0);
+
+  // ---- Sales MIS Report — fully filterable by booking date, same basis as Sold/Bookings ----
+  salesMISData = filterFull(RAW.salesMISRecords, 'bookingDate');
 
   // ---- Bookings — fully filterable ----
   bookingData = filterFull(RAW.bookingRecords, 'bookingDate');
@@ -2436,9 +2578,21 @@ function renderSoldPage(){
   const t = grandTotals();
   const soldArea = masterData.reduce((a,m)=>a+(m.soldArea||0),0);
   const periodActiveSold = !!(filterState.fy || filterState.month);
+  const hasCancellationReport = RAW.cancellationRecords.length > 0;
+  const showGross = hasCancellationReport && soldValueMode === 'gross';
+
+  const toggleEl = document.getElementById('soldValueToggle');
+  if(toggleEl) toggleEl.style.display = hasCancellationReport ? 'flex' : 'none';
+
+  const displayUnits = showGross ? t.soldUnits + genuineCancelledUnits : t.soldUnits;
+  const displayValue = showGross ? t.soldValue + genuineCancelledValue : t.soldValue;
+  const soldValueSub = showGross
+    ? `Incl. ${fmtNum(genuineCancelledUnits)} genuinely-cancelled bookings (${fmtINRCr(genuineCancelledValue)})`
+    : (periodActiveSold ? 'Booked in the selected period, net of cancellations' : 'Total booked value to date, net of cancellations');
+
   document.getElementById('kpiGridSold').innerHTML = [
-    {lbl:'Sold Units', val: fmtNum(t.soldUnits), sub:`across ${masterData.filter(m=>m.soldUnits>0).length} projects`},
-    {lbl:'Sold Value', val: fmtINRCr(t.soldValue), sub: periodActiveSold ? 'Booked in the selected period' : 'Total booked value to date'},
+    {lbl:'Sold Units', val: fmtNum(displayUnits), sub: showGross ? `across ${masterData.filter(m=>m.soldUnits>0).length} projects, incl. cancellations` : `across ${masterData.filter(m=>m.soldUnits>0).length} projects`},
+    {lbl:'Sold Value', val: fmtINRCr(displayValue), sub: soldValueSub},
     {lbl:'Sold Area', val: fmtNum(soldArea)+' sq.ft', sub:'Saleable area sold'},
   ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
 
@@ -2576,9 +2730,24 @@ function renderAvailablePage(){
 /* ============ AGREEMENT REGISTER PAGE ============ */
 
 function renderAgreementPage(){
+  if(!agreementData.length && !salesMISData.length){
+    document.getElementById('kpiGridAgreement').innerHTML = (RAW.agreementRecords.length || RAW.salesMISRecords.length)
+      ? '<p class="chart-note" style="margin:4px 2px;">No agreement or MIS records match the current filter.</p>' : '';
+    destroyChart('stage');
+    destroyChart('pendingRegn');
+    return;
+  }
   if(!agreementData.length){
-    document.getElementById('kpiGridAgreement').innerHTML = RAW.agreementRecords.length
-      ? '<p class="chart-note" style="margin:4px 2px;">No agreement records match the current filter.</p>' : '';
+    // Only the Sales MIS Report is present (no Agreement Register upload this month) — show just
+    // the two MIS-derived KPI cards and skip the Agreement-Register-specific charts/table below.
+    const signedRecords = salesMISData.filter(r=>r.agreementSigned);
+    const registeredRecords = salesMISData.filter(r=>r.agreementRegistered);
+    const signedValue = signedRecords.reduce((a,r)=>a+r.considerationAmount,0);
+    const registeredValue = registeredRecords.reduce((a,r)=>a+r.considerationAmount,0);
+    document.getElementById('kpiGridAgreement').innerHTML = [
+      {lbl:'Total Agreement Signed', val: fmtNum(signedRecords.length), sub: `${fmtINRCr(signedValue)} booking value`},
+      {lbl:'Total Agreement Registered', val: fmtNum(registeredRecords.length), sub: `${fmtINRCr(registeredValue)} booking value`},
+    ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
     destroyChart('stage');
     destroyChart('pendingRegn');
     return;
@@ -2590,13 +2759,25 @@ function renderAgreementPage(){
   const pendingRegn = total - regnRecorded;
   const pendingPossession = total - possessionRecorded;
 
-  document.getElementById('kpiGridAgreement').innerHTML = [
+  const kpiCards = [
     {lbl:'Units Tracked', val: fmtNum(total), sub:'From the Agreement Register report'},
     {lbl:'Regn Date Recorded', val: fmtNum(regnRecorded), sub:`${(regnRecorded/total*100).toFixed(1)}% of tracked units`},
     {lbl:'Possession Date Recorded', val: fmtNum(possessionRecorded), sub:`${(possessionRecorded/total*100).toFixed(1)}% of tracked units`},
     {lbl:'Regn Date Pending', val: fmtNum(pendingRegn), sub:'Units with no Regn Date recorded yet'},
     {lbl:'Possession Date Pending', val: fmtNum(pendingPossession), sub:'Units with no Possession Date recorded yet'},
-  ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+  ];
+  if(salesMISData.length){
+    const signedRecords = salesMISData.filter(r=>r.agreementSigned);
+    const registeredRecords = salesMISData.filter(r=>r.agreementRegistered);
+    const signedValue = signedRecords.reduce((a,r)=>a+r.considerationAmount,0);
+    const registeredValue = registeredRecords.reduce((a,r)=>a+r.considerationAmount,0);
+    kpiCards.push(
+      {lbl:'Total Agreement Signed', val: fmtNum(signedRecords.length), sub: `${fmtINRCr(signedValue)} booking value`},
+      {lbl:'Total Agreement Registered', val: fmtNum(registeredRecords.length), sub: `${fmtINRCr(registeredValue)} booking value`},
+    );
+  }
+  document.getElementById('kpiGridAgreement').innerHTML = kpiCards
+    .map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
 
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
@@ -3263,6 +3444,9 @@ function renderTable(){
 
 document.getElementById('searchBox').addEventListener('input', renderTable);
 document.getElementById('hideEmpty').addEventListener('change', renderTable);
+document.querySelectorAll('input[name="soldValueMode"]').forEach(radio=>{
+  radio.addEventListener('change', (e)=>{ soldValueMode = e.target.value; renderSoldPage(); });
+});
 
 /* ============ EXPORT ============ */
 document.getElementById('exportBtn').addEventListener('click', ()=>{
