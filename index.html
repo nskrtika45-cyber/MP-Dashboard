@@ -1564,8 +1564,11 @@ function parseStockSummary(wb){
   const headerRow1 = rows1[headerIdx1] || [];
   const col1 = {};
   headerRow1.forEach((v,idx)=>{ const t=(v+'').trim(); if(t && col1[t]===undefined) col1[t]=idx; });
-  const projectColIdx = col1['Project'];
-  const subProjectColIdx = col1['SubProject'];
+  const projectColIdx = col1['Project'] !== undefined ? col1['Project']
+    : (headerRow1[0] !== null && headerRow1[0] !== '' ? 0 : undefined); // tolerate label typos ("Poject" etc.) — column 0 has been Project in every export variant seen
+  const subProjectColIdx = col1['SubProject'] !== undefined ? col1['SubProject']
+    : (col1['Sub Project'] !== undefined ? col1['Sub Project']
+    : (headerRow1[1] !== null && headerRow1[1] !== '' ? 1 : undefined)); // tolerate "Sub Project" (with space) and other spelling drift
   const bookingDateColIdx = col1['Booking Date'] !== undefined ? col1['Booking Date'] : 2;
   const statusColIdx = col1['Status'] !== undefined ? col1['Status'] : 9;
   const netAmountColIdx = col1['Net Amount'] !== undefined ? col1['Net Amount'] : 13;
