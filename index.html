@@ -1629,11 +1629,12 @@ function aggregateStockValue(unitRecords){
 function parseAgreementRegister(wb){
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = sheetToRows(ws);
-  let headerIdx = rows.findIndex(r => (r[1]+'').trim() === 'Sr.No.');
+  let headerIdx = rows.findIndex(r => r.some(c => normalizeHeader(c) === 'Sr.No.'));
   if(headerIdx < 0) headerIdx = 3;
   const headerRow = rows[headerIdx] || [];
   const col = {};
   headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
+  const srNoIdx = col['Sr.No.'] !== undefined ? col['Sr.No.'] : 1; // column position has shifted between export versions — locate it by header text, not a fixed index
   const projectColIdx = col['Project'];             // present in newer exports; absent in older ones
   const subProjectColIdx = col['Sub Project'];
   const customerIdx = col['Customer Name'] !== undefined ? col['Customer Name'] : 3;
@@ -1660,7 +1661,7 @@ function parseAgreementRegister(wb){
       currentSubProject = c0.replace('Sub Project:','').trim();
       continue;
     }
-    const sr = r[1];
+    const sr = r[srNoIdx];
     if(typeof sr !== 'number') continue;
     const customer = r[customerIdx], booking = r[bookingIdx], unitNo = r[unitNoIdx], unitStatusText = r[statusIdx],
           agreementDate = r[agreementDateIdx], recvdExctd = r[recvdExctdIdx], regnDate = r[regnDateIdx], possessionDate = r[possessionDateIdx];
@@ -2024,7 +2025,8 @@ function populateFilterOptions(){
   const fySet = new Map(); // label -> sortKey
   const dateSources = [
     [RAW.customerRecords,'bookingDate'], [RAW.stockUnitRecords,'bookingDate'],
-    [RAW.agreementRecords,'bookingDate'], [RAW.collectionReceiptRecords,'date'], [RAW.bookingRecords,'bookingDate']
+    [RAW.agreementRecords,'bookingDate'], [RAW.agreementRecords,'agreementDate'], [RAW.agreementRecords,'regnDate'],
+    [RAW.collectionReceiptRecords,'date'], [RAW.bookingRecords,'bookingDate']
   ];
   dateSources.forEach(([arr,field])=>{
     arr.forEach(r=>{ const fy = financialYearOf(r[field]); if(fy) fySet.set(fy.label, fy.sortKey); });
@@ -2045,7 +2047,8 @@ function populateMonthOptions(){
   const monthMap = new Map(); // key -> {label, sortKey}
   const dateSources = [
     [RAW.customerRecords,'bookingDate'], [RAW.stockUnitRecords,'bookingDate'],
-    [RAW.agreementRecords,'bookingDate'], [RAW.collectionReceiptRecords,'date'], [RAW.bookingRecords,'bookingDate']
+    [RAW.agreementRecords,'bookingDate'], [RAW.agreementRecords,'agreementDate'], [RAW.agreementRecords,'regnDate'],
+    [RAW.collectionReceiptRecords,'date'], [RAW.bookingRecords,'bookingDate']
   ];
   dateSources.forEach(([arr,field])=>{
     arr.forEach(r=>{
