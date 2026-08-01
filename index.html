@@ -258,10 +258,13 @@
 
   .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:14px;}
   @media (max-width:620px){.kpi-grid{grid-template-columns:repeat(2,1fr);}}
-  .sold-toggle{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;background:var(--navy-pale);border:1px solid var(--border);border-radius:8px;font-size:13px;}
+  .sold-toggle{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px;padding:8px 10px;background:var(--navy-pale);border:1px solid var(--border);border-radius:8px;font-size:13px;}
   .sold-toggle-label{font-weight:600;color:var(--navy);}
-  .sold-toggle label{display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink);}
-  .sold-toggle input[type="radio"]{accent-color:var(--gold);cursor:pointer;}
+  .toggle-tabs{display:flex;gap:4px;background:#fff;border:1px solid var(--border);border-radius:7px;padding:3px;}
+  .toggle-tab{appearance:none;border:none;background:transparent;color:var(--muted);font-family:'Inter',sans-serif;
+    font-size:12.5px;font-weight:600;padding:7px 14px;border-radius:5px;cursor:pointer;transition:background .15s,color .15s;}
+  .toggle-tab:hover{color:var(--navy);}
+  .toggle-tab.active{background:var(--gold);color:#fff;}
   .kpi{
     background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 16px 14px;
     position:relative;overflow:hidden;
@@ -485,22 +488,6 @@
         <div class="chart-card"><h3>Sold vs unsold area by project (top 15, sq.ft)</h3><div class="wrap tall"><canvas id="chartSoldAvailArea"></canvas></div></div>
       </div>
 
-      <div class="section-title group"><h2>Sold</h2><div class="line"></div></div>
-
-      <div class="sold-toggle" id="soldValueToggle" style="display:none;">
-        <span class="sold-toggle-label">Sold value:</span>
-        <label><input type="radio" name="soldValueMode" value="net" checked> Without Cancellation</label>
-        <label><input type="radio" name="soldValueMode" value="gross"> With Cancellation</label>
-      </div>
-
-      <div class="kpi-grid" id="kpiGridSold"></div>
-
-      <div class="section-title"><h2>Sold Value by Project</h2><div class="line"></div></div>
-      <div class="chart-grid">
-        <div class="chart-card"><h3>Sold value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartSoldValue"></canvas></div></div>
-        <div class="chart-card"><h3>Sold value by financial year (₹ Cr, by booking date)</h3><div class="wrap tall"><canvas id="chartSoldFY"></canvas></div></div>
-      </div>
-
       <div class="section-title group" id="overviewBookingsHeader"><h2>Bookings</h2><div class="line"></div></div>
       <div id="overviewBookingsSection">
 
@@ -546,24 +533,25 @@
     <!-- ================= SALES PAGE (Sold + Available + Bookings) ================= -->
     <div class="page" id="page-sales">
 
-      <div class="section-title group"><h2>Project-wise Sold &amp; Unsold</h2><div class="line"></div></div>
-      <div class="table-toolbar">
-        <input type="text" id="salesProjectSearchBox" placeholder="Search project name...">
-      </div>
-      <div class="table-card">
-        <div class="table-scroll">
-          <table id="salesProjectTable">
-            <thead><tr id="salesProjectTheadRow"></tr></thead>
-            <tbody id="salesProjectTbody"></tbody>
-            <tfoot><tr id="salesProjectTfootRow"></tr></tfoot>
-          </table>
+      <div class="section-title group"><h2>Sales</h2><div class="line"></div></div>
+
+      <div class="sold-toggle" id="soldValueToggle" style="display:none;">
+        <span class="sold-toggle-label">Sales value:</span>
+        <div class="toggle-tabs">
+          <button type="button" class="toggle-tab active" data-mode="net">Without Cancellation</button>
+          <button type="button" class="toggle-tab" data-mode="gross">With Cancellation</button>
         </div>
       </div>
 
-      <div class="section-title group"><h2>Sold</h2><div class="line"></div></div>
+      <div class="kpi-grid" id="kpiGridSold"></div>
 
+      <div class="section-title"><h2>Sales Value by Project</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="chart-card"><h3>Sales value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartSoldValue"></canvas></div></div>
+        <div class="chart-card"><h3>Sales value by financial year (₹ Cr, by booking date)</h3><div class="wrap tall"><canvas id="chartSoldFY"></canvas></div></div>
+      </div>
 
-      <div class="section-title"><h2>Sold — Project-wise Detail</h2><div class="line"></div></div>
+      <div class="section-title"><h2>Sales — Project-wise Detail</h2><div class="line"></div></div>
       <div class="table-toolbar">
         <input type="text" id="soldSearchBox" placeholder="Search project name...">
       </div>
@@ -573,6 +561,20 @@
             <thead><tr id="soldTheadRow"></tr></thead>
             <tbody id="soldTbody"></tbody>
             <tfoot><tr id="soldTfootRow"></tr></tfoot>
+          </table>
+        </div>
+      </div>
+
+      <div class="section-title group"><h2>Project-wise Sales &amp; Unsold</h2><div class="line"></div></div>
+      <div class="table-toolbar">
+        <input type="text" id="salesProjectSearchBox" placeholder="Search project name...">
+      </div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="salesProjectTable">
+            <thead><tr id="salesProjectTheadRow"></tr></thead>
+            <tbody id="salesProjectTbody"></tbody>
+            <tfoot><tr id="salesProjectTfootRow"></tr></tfoot>
           </table>
         </div>
       </div>
@@ -2263,7 +2265,7 @@ function renderKPIs(){
     {lbl:'Projects', val: t.projects, sub: `${masterData.filter(m=>m.totalUnits>0).length} with active stock`},
     {lbl:'Total Units', val: fmtNum(t.totalUnits), sub: `<b class="pos">${fmtNum(t.soldUnits)}</b> sold &middot; ${fmtNum(t.availUnits)} unsold`},
     {lbl:'Total Saleable Area', val: fmtNum(t.totalArea)+' <span style="font-size:13px;color:var(--muted);">sq.ft</span>', sub:'Across sold, unsold &amp; blocked stock'},
-    {lbl:'Sold Value', val: fmtINRCr(t.soldValue), sub: `of ${fmtINRCr(t.totalValue)} total portfolio value`},
+    {lbl:'Sales Value', val: fmtINRCr(t.soldValue), sub: `of ${fmtINRCr(t.totalValue)} total portfolio value`},
     {lbl:'Unsold Value', val: fmtINRCr(t.availValue), sub:'Unsold inventory at current rates'},
   ];
   if(RAW.agreementRecords.length){
@@ -2289,7 +2291,7 @@ function renderHero(){
       <div class="hero-bar"><div class="fill" style="width:${availPct}%"></div></div>
     </div>
     <div class="hero-half sold">
-      <div class="lbl">Sold Value</div>
+      <div class="lbl">Sales Value</div>
       <div class="big num">${fmtINRCr(t.soldValue)}</div>
       <div class="sub2">${fmtNum(t.soldUnits)} units &middot; ${soldPct.toFixed(1)}% of portfolio</div>
       <div class="hero-bar"><div class="fill" style="width:${soldPct}%"></div></div>
@@ -2565,7 +2567,7 @@ function renderSoldPage(){
 
   document.getElementById('kpiGridSold').innerHTML = [
     {lbl:'Sold Units', val: fmtNum(displayUnits), sub: showGross ? `across ${masterData.filter(m=>m.soldUnits>0).length} projects, incl. cancellations` : `across ${masterData.filter(m=>m.soldUnits>0).length} projects`},
-    {lbl:'Sold Value', val: fmtINRCr(displayValue), sub: soldValueSub},
+    {lbl:'Sales Value', val: fmtINRCr(displayValue), sub: soldValueSub},
     {lbl:'Sold Area', val: fmtNum(soldArea)+' sq.ft', sub:'Saleable area sold'},
   ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
 
@@ -2581,7 +2583,7 @@ function renderSoldPage(){
   chartClearEmptyMessage('chartSoldValue');
   charts.soldValue = new Chart(document.getElementById('chartSoldValue'), {
     type:'bar',
-    data:{ labels: bySold.map(m=>m.project), datasets:[{ label:'Sold Value', data: bySold.map(m=>m.soldValue/1e7), backgroundColor: teal }] },
+    data:{ labels: bySold.map(m=>m.project), datasets:[{ label:'Sales Value', data: bySold.map(m=>m.soldValue/1e7), backgroundColor: teal }] },
     options:{
       indexAxis:'y', responsive:true, maintainAspectRatio:false,
       scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
@@ -2602,7 +2604,7 @@ function renderSoldPage(){
   chartClearEmptyMessage('chartSoldFY');
   charts.soldFY = new Chart(document.getElementById('chartSoldFY'), {
     type:'bar',
-    data:{ labels: fyData.map(f=>f.label), datasets:[{ label:'Sold Value', data: fyData.map(f=>f.value/1e7), backgroundColor: teal, borderRadius:4 }] },
+    data:{ labels: fyData.map(f=>f.label), datasets:[{ label:'Sales Value', data: fyData.map(f=>f.value/1e7), backgroundColor: teal, borderRadius:4 }] },
     options:{
       responsive:true, maintainAspectRatio:false,
       scales:{ x:{ grid:{display:false} }, y:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} } },
@@ -2622,7 +2624,7 @@ function renderSoldPage(){
       {key:'project', label:'Project', align:'left'},
       {key:'soldUnits', label:'Sold Units', fmt:fmtNum},
       {key:'soldArea', label:'Sold Area (sq.ft)', fmt:fmtNum},
-      {key:'soldValue', label:'Sold Value', fmt:fmtINRCr},
+      {key:'soldValue', label:'Sales Value', fmt:fmtINRCr},
       {key:'soldRate', label:'Avg Rate (₹/sq.ft)', fmt:(n)=> n===null?'—':'₹'+Math.round(n).toLocaleString('en-IN')},
     ],
     rowsSource: masterData.filter(m=>m.soldUnits>0).map(m=>({...m, soldRate: m.soldArea ? m.soldValue/m.soldArea : null})),
@@ -3156,7 +3158,7 @@ function renderSalesProjectTable(){
     columns:[
       {key:'project', label:'Project', align:'left'},
       {key:'soldUnits', label:'Sold Units', fmt:fmtNum},
-      {key:'soldValue', label:'Sold Value', fmt:fmtINRCr},
+      {key:'soldValue', label:'Sales Value', fmt:fmtINRCr},
       {key:'availUnits', label:'Unsold Units', fmt:fmtNum},
       {key:'availValue', label:'Unsold Value', fmt:fmtINRCr},
     ],
@@ -3325,7 +3327,7 @@ const columns = [
   {key:'availUnits', label:'Unsold', fmt:fmtNum},
   {key:'blockedUnits', label:'Blocked', fmt:fmtNum},
   {key:'totalArea', label:'Total Area (sq.ft)', fmt:fmtNum},
-  {key:'soldValue', label:'Sold Value', fmt:fmtINRCr},
+  {key:'soldValue', label:'Sales Value', fmt:fmtINRCr},
   {key:'availValue', label:'Unsold Value', fmt:fmtINRCr},
   {key:'totalValue', label:'Total Value', fmt:fmtINRCr},
   {key:'avgSoldPrice', label:'Avg Sold Price (₹/sq.ft)', fmt:(n)=> n===null?'—':'₹'+Math.round(n).toLocaleString('en-IN')},
@@ -3392,8 +3394,13 @@ function renderTable(){
 
 document.getElementById('searchBox').addEventListener('input', renderTable);
 document.getElementById('hideEmpty').addEventListener('change', renderTable);
-document.querySelectorAll('input[name="soldValueMode"]').forEach(radio=>{
-  radio.addEventListener('change', (e)=>{ soldValueMode = e.target.value; renderSoldPage(); });
+document.querySelectorAll('.toggle-tab').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.toggle-tab').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    soldValueMode = btn.dataset.mode;
+    renderSoldPage();
+  });
 });
 
 /* ============ EXPORT ============ */
