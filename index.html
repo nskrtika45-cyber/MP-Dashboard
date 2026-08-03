@@ -2253,13 +2253,15 @@ function grandTotals(){
     acc.availUnits += m.availUnits||0;
     acc.blockedUnits += m.blockedUnits||0;
     acc.totalArea += m.totalArea||0;
+    acc.soldArea += m.soldArea||0;
+    acc.availArea += m.availArea||0;
     acc.soldValue += m.soldValue||0;
     acc.availValue += m.availValue||0;
     acc.totalValue += m.totalValue||0;
     acc.cancelledUnits += m.cancelledUnits||0;
     if(m.beforeDiscount !== null){ acc.beforeDiscount += m.beforeDiscount; acc.afterDiscount += m.afterDiscount; acc.activeBookedUnits += (m.discountActiveUnits||0); }
     return acc;
-  },{projects:0,totalUnits:0,soldUnits:0,availUnits:0,blockedUnits:0,totalArea:0,soldValue:0,availValue:0,totalValue:0,beforeDiscount:0,afterDiscount:0,cancelledUnits:0,activeBookedUnits:0});
+  },{projects:0,totalUnits:0,soldUnits:0,availUnits:0,blockedUnits:0,totalArea:0,soldArea:0,availArea:0,soldValue:0,availValue:0,totalValue:0,beforeDiscount:0,afterDiscount:0,cancelledUnits:0,activeBookedUnits:0});
 }
 
 function renderKPIs(){
@@ -2267,7 +2269,8 @@ function renderKPIs(){
   const cards = [
     {lbl:'Projects', val: t.projects, sub: `${masterData.filter(m=>m.totalUnits>0).length} with active stock`},
     {lbl:'Total Units', val: fmtNum(t.totalUnits), sub: `<b class="pos">${fmtNum(t.soldUnits)}</b> sold &middot; ${fmtNum(t.availUnits)} unsold`},
-    {lbl:'Total Saleable Area', val: fmtNum(t.totalArea)+' <span style="font-size:13px;color:var(--muted);">sq.ft</span>', sub:'Across sold, unsold &amp; blocked stock'},
+    {lbl:'Sold Area', val: fmtNum(t.soldArea)+' <span style="font-size:13px;color:var(--muted);">sq.ft</span>', sub: `of ${fmtNum(t.totalArea)} sq.ft total saleable area`},
+    {lbl:'Unsold Area', val: fmtNum(t.availArea)+' <span style="font-size:13px;color:var(--muted);">sq.ft</span>', sub: `of ${fmtNum(t.totalArea)} sq.ft total saleable area`},
     {lbl:'Sales Value', val: fmtINRCr(t.soldValue), sub: `of ${fmtINRCr(t.totalValue)} total portfolio value`},
     {lbl:'Unsold Value', val: fmtINRCr(t.availValue), sub:'Unsold inventory at current rates'},
   ];
