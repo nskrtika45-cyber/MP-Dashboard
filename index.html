@@ -419,9 +419,9 @@
         <input type="file" id="file5" accept=".xlsx">
       </label>
       <label class="drop" id="drop6">
-        <div class="label">6 &middot; Outstanding Payments Report <span style="text-transform:none;font-weight:400;">(optional)</span></div>
+        <div class="label">6 &middot; Customer Outstanding Report <span style="text-transform:none;font-weight:400;">(optional)</span></div>
         <div class="fname" id="fname6">Click to choose file (.xlsx)</div>
-        <div class="hint">Replaces the estimated Outstanding Balance on the Collection tab with the ERP's own Net Receivable figure</div>
+        <div class="hint">Replaces the estimated Outstanding Balance on the CRM tab with the ERP's own Total Balance Outstanding figure</div>
         <input type="file" id="file6" accept=".xlsx">
       </label>
       <label class="drop" id="drop7">
@@ -1861,50 +1861,59 @@ function aggregateBookingMonth(records){
   return Object.values(monthMap).sort((a,b)=> a.sortKey.localeCompare(b.sortKey));
 }
 
-/* ============ OUTSTANDING PAYMENTS REPORT PARSING ============ */
-// A snapshot "as on date" report (like available inventory) — no per-unit transaction date to
-// filter by FY/Month, so this is always Project-only filterable. "Net Receivable [Z=C-L]" is the
-// ERP's own authoritative outstanding balance per unit (Total Cost minus Total Received).
+/* ============ CUSTOMER OUTSTANDING REPORT PARSING ============ */
+// This report's header spans TWO rows: an upper row with group labels ("Total Recieved",
+// "Total Balance Outstanding", etc.) and a lower row with sub-labels (Principle/Interest/
+// Penalty/Total, or month names). Columns are located by combining both rows into one label
+// per column (e.g. "Total Balance Outstanding" + "Total" -> "Total Balance Outstanding Total"),
+// so a column's meaning doesn't depend on its position. "Total Balance Outstanding Total" is
+// this report's own bottom-line outstanding figure (equivalent to the old report's Net Receivable).
+// A snapshot "as on now" report — no per-unit transaction date to filter by FY/Month, so this is
+// always Project-only filterable, same as Available inventory.
 
 function parseOutstandingReport(wb){
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = sheetToRows(ws);
-  let asOnDate = null;
-  for(let i=0;i<Math.min(rows.length,6);i++){
-    const c0 = rows[i][0];
-    if(typeof c0 === 'string' && c0.includes('As on Date')){
-      const m = c0.match(/As on Date\s*:\s*(.+)/);
-      if(m) asOnDate = m[1].trim();
-    }
-  }
-  let headerIdx = rows.findIndex(r => normalizeHeader(r[0]) === 'Project Name');
+  let headerIdx = rows.findIndex(r => normalizeHeader(r[1]) === 'Project Name');
   if(headerIdx < 0) headerIdx = 3;
-  const headerRow = rows[headerIdx] || [];
+  const headerRow1 = rows[headerIdx] || [];
+  const headerRow2 = rows[headerIdx+1] || [];
   const col = {};
-  headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
-  const customerIdx = col['Customer Name'] !== undefined ? col['Customer Name'] : 2;
-  const unitNoIdx = col['Unit No'] !== undefined ? col['Unit No'] : 5;
-  const bookingDateIdx = col['Booking Date'] !== undefined ? col['Booking Date'] : 6;
-  const statusIdx = col['Status'] !== undefined ? col['Status'] : 27;
-  const totalCostIdx = col['Total Cost [C=A+B]'] !== undefined ? col['Total Cost [C=A+B]'] : 12;
-  const totalReceivedIdx = col['Total Received [L=G+H+I+J]'] !== undefined ? col['Total Received [L=G+H+I+J]'] : 23;
-  const netReceivableIdx = col['Net Receivable [Z=C-L]'] !== undefined ? col['Net Receivable [Z=C-L]'] : 29;
+  let lastGroup = '';
+  const width = Math.max(headerRow1.length, headerRow2.length);
+  for(let idx=0; idx<width; idx++){
+    const top = normalizeHeader(headerRow1[idx]);
+    if(top) lastGroup = top;
+    const sub = normalizeHeader(headerRow2[idx]);
+    const label = sub ? (lastGroup + ' ' + sub).trim() : lastGroup;
+    if(label && col[label] === undefined) col[label] = idx;
+  }
+  const projectIdx = col['Project Name'] !== undefined ? col['Project Name'] : 1;
+  const blockIdx = col['Block']; // this report's equivalent of Sub Project
+  const customerIdx = col['Customer Name'] !== undefined ? col['Customer Name'] : 9;
+  const unitNoIdx = col['Unit No.'] !== undefined ? col['Unit No.'] : 4;
+  const bookingDateIdx = col['Booking Date'] !== undefined ? col['Booking Date'] : 10;
+  const statusIdx = col['Status'] !== undefined ? col['Status'] : 13;
+  const totalCostIdx = col['Total Price'] !== undefined ? col['Total Price'] : 16;
+  const totalReceivedIdx = col['Total Recieved Total'] !== undefined ? col['Total Recieved Total'] : 21;
+  const netReceivableIdx = col['Total Balance Outstanding Total'] !== undefined ? col['Total Balance Outstanding Total'] : 38;
 
   const records = [];
-  let currentProject = null, currentSubProject = null;
-  for(let i=headerIdx+1; i<rows.length; i++){
+  for(let i=headerIdx+2; i<rows.length; i++){
     const r = rows[i];
-    if(r[0] !== null && r[0] !== ''){ currentProject = normalizeProjectName(r[0]); continue; }
-    if(r[1] !== null && r[1] !== '' && (r[2] === null || r[2] === '')){ currentSubProject = r[1]; continue; }
+    const rawProject = r[projectIdx];
+    if(rawProject === null || rawProject === '') continue;
     const customer = r[customerIdx];
     if(customer === null || customer === '') continue;
     const netReceivable = r[netReceivableIdx];
     if(typeof netReceivable !== 'number') continue;
+    const subProject = (blockIdx !== undefined && r[blockIdx]) ? r[blockIdx] : '';
+    const project = resolveProjectForSubProject(normalizeProjectName(rawProject), subProject);
     records.push({
-      project: resolveProjectForSubProject(currentProject || 'Unknown', currentSubProject), subProject: currentSubProject || '',
+      project: project || 'Unknown', subProject,
       unitNo: r[unitNoIdx] || '', customer, bookingDate: r[bookingDateIdx] || '',
       status: r[statusIdx] || '', totalCost: r[totalCostIdx] || 0, totalReceived: r[totalReceivedIdx] || 0,
-      netReceivable, asOnDate,
+      netReceivable, asOnDate: null,
     });
   }
   return records;
@@ -2742,7 +2751,7 @@ function renderCollectionPage(){
     outstandingTotal = netReceivableSum;
     collectionPct = totalCostSum ? (totalReceivedSum/totalCostSum*100) : 0;
     asOnDateLabel = outstandingData[0].asOnDate;
-    outstandingSub = asOnDateLabel ? `Net Receivable, as on ${asOnDateLabel}` : 'Net Receivable, from Outstanding Payments Report';
+    outstandingSub = 'Total Balance Outstanding, from Customer Outstanding Report';
   } else {
     const collectionProjects = Object.keys(projectTotals);
     let matchedSoldValue = 0;
@@ -2826,7 +2835,7 @@ function renderCollectionPage(){
   // 3. Outstanding balance by project (top 15, always all-time / as-on-date)
   const outstandingChartTitle = document.querySelector('#chartOutstanding').closest('.chart-card').querySelector('h3');
   if(outstandingChartTitle) outstandingChartTitle.textContent = hasOutstandingReport
-    ? `Outstanding balance by project (top 15, Net Receivable${asOnDateLabel ? ', as on '+asOnDateLabel : ''})`
+    ? `Outstanding balance by project (top 15, Total Balance Outstanding)`
     : 'Outstanding balance by project (top 15, estimated: sold value − collected)';
   const byOutstanding = outstandingByProject.filter(p=>p.outstanding>0).sort((a,b)=>b.outstanding-a.outstanding).slice(0,15);
   destroyChart('outstanding');
@@ -2908,7 +2917,7 @@ function renderCollectionPage(){
   } else {
     document.getElementById('outstandingTbody').innerHTML = '';
     document.getElementById('outstandingTheadRow').innerHTML = '';
-    document.getElementById('outstandingTfootRow').innerHTML = `<td style="padding:14px;color:var(--muted);">Upload the Outstanding Payments Report to see project-wise Net Receivable detail here.</td>`;
+    document.getElementById('outstandingTfootRow').innerHTML = `<td style="padding:14px;color:var(--muted);">Upload the Customer Outstanding Report to see project-wise outstanding detail here.</td>`;
   }
 
   renderGenericTable({
