@@ -832,7 +832,7 @@ const db = firebase.firestore();
 // Firestore caps each document at 1MiB. The combined RAW data can exceed that (it's already
 // ~1.4MB with 5 reports loaded), so each RAW.* array is stored as its own small document instead
 // of one big one — every individual piece has comfortable headroom to keep growing month to month.
-const RAW_KEYS = ['customerRecords','stockDict','stockUnitRecords','agreementRecords','collectionUnitRecords','collectionReceiptRecords','bookingRecords','outstandingRecords','cancellationRecords'];
+const RAW_KEYS = ['customerRecords','stockDict','stockUnitRecords','agreementRecords','collectionReceiptRecords','bookingRecords','outstandingRecords','cancellationRecords'];
 
 // Project -> physical location & property type, as supplied by MP Developers (not derivable from
 // any ERP report). Projects not in this list show under "Unmapped" in the Location Wise view
@@ -981,7 +981,7 @@ async function publishDashboardData(fileNames){
 
 function updateSectionVisibility(){
   const hasAgreement = RAW.agreementRecords.length > 0;
-  const hasCollectionOrOutstanding = RAW.collectionUnitRecords.length > 0 || RAW.outstandingRecords.length > 0;
+  const hasCollectionOrOutstanding = RAW.collectionReceiptRecords.length > 0 || RAW.outstandingRecords.length > 0;
   const hasBookings = RAW.bookingRecords.length > 0;
 
   document.getElementById('crmTabBtn').style.display = (hasAgreement || hasCollectionOrOutstanding) ? '' : 'none';
@@ -1263,7 +1263,6 @@ let RAW = {
   stockDict: {},               // Stock Summary Sheet2: project -> unit/area counts (no dates — snapshot)
   stockUnitRecords: [],        // Stock Summary Sheet1: project, status, bookingDate, amount
   agreementRecords: [],        // Agreement Register: project, bookingDate, milestone dates, status
-  collectionUnitRecords: [],   // Collection Sheet6: project, unit (no dates — snapshot)
   collectionReceiptRecords: [],// Collection Sheet1: project, date, amount (used for the FY trend only)
   bookingRecords: [],          // Booking Report: project, bookingDate, value
   outstandingRecords: [],      // Outstanding Payments Report: project, unit, netReceivable (no dates — snapshot as-on-date)
@@ -1353,10 +1352,9 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
 
     if(file4Data){
       const wb4 = await readFileAsWB(file4Data);
-      RAW.collectionUnitRecords = parseCollectionRegister(wb4);
       RAW.collectionReceiptRecords = parseCollectionFY(wb4);
     } else {
-      RAW.collectionUnitRecords = []; RAW.collectionReceiptRecords = [];
+      RAW.collectionReceiptRecords = [];
     }
 
     if(file5Data){
@@ -1697,50 +1695,49 @@ function buildAgreementSummary(records){
 
 /* ============ COLLECTION REGISTER PARSING ============ */
 
-function parseCollectionRegister(wb){
-  // Sheet6 "Customer Summary" — unit-level collection totals
-  const sheetName = wb.SheetNames.find(n=>n.toLowerCase()==='sheet6') || wb.SheetNames[wb.SheetNames.length-1];
+function parseCollectionFY(wb){
+  // Sheet1 raw receipts — used for a clean FY trend (Sheet5's pre-built totals contain broken formula
+  // cells) and, cumulated per unit, for the Unit-wise Collection Detail table (Sheet6's own unit
+  // summary is not used — see note above renderCollectionPage). Returns raw per-receipt records so
+  // they can be filtered by Project/FY/Month first and re-aggregated afterward.
+  const sheetName = wb.SheetNames.find(n=>n.toLowerCase()==='sheet1') || wb.SheetNames[0];
   const rows = sheetToRows(wb.Sheets[sheetName]);
   let headerIdx = rows.findIndex(r => (r[0]+'').trim() === 'Project Name');
-  if(headerIdx < 0) headerIdx = 4;
+  if(headerIdx < 0) headerIdx = 3;
+  const headerRow = rows[headerIdx] || [];
+  const col = {};
+  headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
+  const receiptDateIdx = col['Receipt Dt'] !== undefined ? col['Receipt Dt'] : 5;
+  const amountIdx = col['Total Amount'] !== undefined ? col['Total Amount'] : 22;
+  const unitNoIdx = col['Unit No.'] !== undefined ? col['Unit No.'] : 13;
+  const customerIdx = col['Customer Name'] !== undefined ? col['Customer Name'] : 8;
   const records = [];
-  let currentProject = null, currentSubProject = null;
   for(let i=headerIdx+1; i<rows.length; i++){
     const r = rows[i];
-    const c0 = r[0], c1 = r[1], c2 = r[2];
-    if(c0 !== null && c0 !== ''){ currentProject = normalizeProjectName(c0); continue; }
-    if(c1 !== null && c1 !== '' && (c2===null || c2==='')){ currentSubProject = c1; continue; }
-    if(c2 === null || c2 === '') continue;
-    const principal = typeof r[6]==='number' ? r[6] : 0;
-    const interest = typeof r[7]==='number' ? r[7] : 0;
-    const excess = typeof r[8]==='number' ? r[8] : 0;
-    const total = typeof r[9]==='number' ? r[9] : (principal+interest+excess);
+    if(r[0] === null || r[0] === '') continue; // skips the trailing report "Total" row too
+    const receiptDate = r[receiptDateIdx];
+    const amt = r[amountIdx];
+    if(typeof amt !== 'number' || typeof receiptDate !== 'string' || !receiptDate.trim()) continue;
     records.push({
-      project: resolveProjectForSubProject(currentProject || 'Unknown', currentSubProject), subProject: currentSubProject || '',
-      unitNo: c2, customer: r[3] || '', accStatus: r[4] || '',
-      principal, interest, excess, total
+      project: resolveProjectForSubProject(normalizeProjectName(r[0]), r[1]), subProject: r[1] || '',
+      unitNo: r[unitNoIdx] || '', customer: r[customerIdx] || '',
+      date: receiptDate, amount: amt,
     });
   }
   return records;
 }
 
-function parseCollectionFY(wb){
-  // Sheet1 raw receipts — used for a clean FY trend (Sheet5's pre-built totals contain broken formula cells).
-  // Returns raw records so they can be re-aggregated after filtering.
-  const sheetName = wb.SheetNames.find(n=>n.toLowerCase()==='sheet1') || wb.SheetNames[0];
-  const rows = sheetToRows(wb.Sheets[sheetName]);
-  let headerIdx = rows.findIndex(r => (r[0]+'').trim() === 'Project Name');
-  if(headerIdx < 0) headerIdx = 3;
-  const records = [];
-  for(let i=headerIdx+1; i<rows.length; i++){
-    const r = rows[i];
-    if(r[0] === null || r[0] === '') continue; // skips the trailing report "Total" row too
-    const receiptDate = r[5];
-    const amt = r[22];
-    if(typeof amt !== 'number' || typeof receiptDate !== 'string' || !receiptDate.trim()) continue;
-    records.push({ project: resolveProjectForSubProject(normalizeProjectName(r[0]), r[1]), date: receiptDate, amount: amt });
-  }
-  return records;
+// Cumulates raw per-receipt records (from Sheet1) into one row per unit — this is what powers the
+// Unit-wise Collection Detail table now, replacing Sheet6's own pre-computed unit summary.
+function aggregateCollectionByUnit(records){
+  const map = {};
+  records.forEach(rec=>{
+    const key = rec.project + '|' + rec.unitNo;
+    if(!map[key]) map[key] = { project: rec.project, subProject: rec.subProject, unitNo: rec.unitNo, customer: rec.customer, total: 0 };
+    map[key].total += rec.amount;
+    if(!map[key].customer && rec.customer) map[key].customer = rec.customer;
+  });
+  return Object.values(map);
 }
 
 // Pure aggregator — callable with the full receipt record set or a filtered subset.
@@ -1757,14 +1754,14 @@ function aggregateCollectionFY(records){
 
 function buildCollectionSummary(records){
   const projectTotals = {};
-  let principalTotal=0, interestTotal=0, excessTotal=0;
+  let allTimeCollected = 0;
   records.forEach(rec=>{
-    if(!projectTotals[rec.project]) projectTotals[rec.project] = {principal:0, interest:0, excess:0, total:0, units:0};
+    if(!projectTotals[rec.project]) projectTotals[rec.project] = {total:0, units:0};
     const p = projectTotals[rec.project];
-    p.principal += rec.principal; p.interest += rec.interest; p.excess += rec.excess; p.total += rec.total; p.units += 1;
-    principalTotal += rec.principal; interestTotal += rec.interest; excessTotal += rec.excess;
+    p.total += rec.total; p.units += 1;
+    allTimeCollected += rec.total;
   });
-  return {projectTotals, principalTotal, interestTotal, excessTotal};
+  return {projectTotals, allTimeCollected};
 }
 
 /* ============ BOOKING REPORT PARSING ============ */
@@ -2026,7 +2023,7 @@ function filterStockDict(dict, project){
 
 function populateFilterOptions(){
   const projects = new Set();
-  [RAW.customerRecords, RAW.stockUnitRecords, RAW.agreementRecords, RAW.collectionUnitRecords, RAW.bookingRecords].forEach(arr=>{
+  [RAW.customerRecords, RAW.stockUnitRecords, RAW.agreementRecords, RAW.collectionReceiptRecords, RAW.bookingRecords].forEach(arr=>{
     arr.forEach(r=> r.project && projects.add(r.project));
   });
   Object.keys(RAW.stockDict).forEach(p=> projects.add(p));
@@ -2140,14 +2137,15 @@ function applyFiltersAndRender(){
   agreementRegisteredValue = registeredRecords.reduce((a,r)=>a+(r.agreementValue||0),0);
 
   // ---- Collection ----
-  // Sheet6 (unit-level Principal/Interest/Excess breakdown) has no dates, so its table, composition
-  // chart, and Outstanding Balance are always Project-only (all-time) — labelled as such in the UI.
-  collectionData = filterProjectOnly(RAW.collectionUnitRecords);
+  // Unit-wise collection now comes from Sheet1 raw receipts, cumulated per unit — not Sheet6's own
+  // pre-computed unit summary. Since Sheet1 has real receipt dates, this now respects Project + FY +
+  // Month like the rest of Collection, using the same date-filtered receipt set as collectionReceiptsFiltered below.
   collectionFYData = aggregateCollectionFY(filterProjectOnly(RAW.collectionReceiptRecords));
   // Sheet1 raw receipts DO have dates, so "Total Collected" and "Collected by project" are driven from
   // here and fully respect Project + FY + Month — this is what makes Collection's headline number
   // actually move when you pick a financial year.
   const collectionReceiptsFiltered = filterFull(RAW.collectionReceiptRecords, 'date');
+  collectionData = aggregateCollectionByUnit(collectionReceiptsFiltered);
   collectionPeriodTotal = collectionReceiptsFiltered.reduce((a,r)=>a+r.amount,0);
   collectionPeriodByProject = {};
   collectionReceiptsFiltered.forEach(r=>{ collectionPeriodByProject[r.project] = (collectionPeriodByProject[r.project]||0) + r.amount; });
@@ -2721,13 +2719,12 @@ function renderAgreementPage(){
 
 function renderCollectionPage(){
   if(!collectionData.length && !outstandingData.length){
-    document.getElementById('kpiGridCollection').innerHTML = (RAW.collectionUnitRecords.length || RAW.outstandingRecords.length)
+    document.getElementById('kpiGridCollection').innerHTML = (RAW.collectionReceiptRecords.length || RAW.outstandingRecords.length)
       ? '<p class="chart-note" style="margin:4px 2px;">No collection or outstanding records for the selected project.</p>' : '';
     destroyChart('collection'); destroyChart('collectionFY'); destroyChart('outstanding'); destroyChart('collectedVsOutstanding');
     return;
   }
-  const { projectTotals, principalTotal, interestTotal, excessTotal } = buildCollectionSummary(collectionData);
-  const allTimeCollected = principalTotal + interestTotal + excessTotal;
+  const { projectTotals, allTimeCollected } = buildCollectionSummary(collectionData);
   const unitsRecorded = collectionData.length;
   const periodActive = !!(filterState.fy || filterState.month);
 
@@ -2929,7 +2926,6 @@ function renderCollectionPage(){
       {key:'subProject', label:'Sub Project', align:'left', noSum:true},
       {key:'unitNo', label:'Unit No', align:'left', noSum:true},
       {key:'customer', label:'Customer', align:'left', noSum:true},
-      {key:'accStatus', label:'Acc. Status', align:'left', noSum:true},
       {key:'total', label:'Total Collected', fmt:fmtINRCr},
     ],
     rowsSource: collectionData,
@@ -3337,8 +3333,8 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
   }
   if(collectionData.length){
     const collectionExport = collectionData.map(r=>({
-      'Project': r.project, 'Sub Project': r.subProject, 'Unit No': r.unitNo, 'Customer': r.customer, 'Acc. Status': r.accStatus,
-      'Principal Collected (₹)': r.principal, 'Interest Collected (₹)': r.interest, 'Excess Collected (₹)': r.excess, 'Total Collected (₹)': r.total,
+      'Project': r.project, 'Sub Project': r.subProject, 'Unit No': r.unitNo, 'Customer': r.customer,
+      'Total Collected (₹)': r.total,
     }));
     const ws3 = XLSX.utils.json_to_sheet(collectionExport);
     XLSX.utils.book_append_sheet(wb, ws3, 'Collection Register');
