@@ -2652,11 +2652,9 @@ function renderAgreementPage(){
   const { statusList, projectPending } = buildAgreementSummary(agreementData);
   const total = agreementData.length;
   const regnRecorded = agreementData.filter(r=>r.regnDate!=='').length;
-  const pendingRegn = total - regnRecorded;
 
   document.getElementById('kpiGridAgreement').innerHTML = [
     {lbl:'Units Tracked', val: fmtNum(total), sub:'From the Agreement Register report'},
-    {lbl:'Regn Date Pending', val: fmtNum(pendingRegn), sub:'Units with no Regn Date recorded yet'},
     {lbl:'Total Agreement Signed', val: fmtNum(agreementSignedCount), sub: `${fmtINRCr(agreementSignedValue)} booking value &middot; by Agreement Date`},
     {lbl:'Yet to Sign', val: fmtNum(agreementYetToSignCount), sub: `${fmtINRCr(agreementYetToSignValue)} booking value &middot; current backlog`},
     {lbl:'Total Unit Registered', val: fmtNum(agreementRegisteredCount), sub: `${fmtINRCr(agreementRegisteredValue)} booking value &middot; by Regn Date`},
@@ -3121,7 +3119,11 @@ function renderCRMProjectTable(){
     pendingRegn: agreementByProject[project] ? agreementByProject[project].pendingRegn : null,
     collected: collectedByProject[project] !== undefined ? collectedByProject[project] : null,
     outstanding: outstandingByProjectMap[project] !== undefined ? outstandingByProjectMap[project] : null,
-  }));
+  })).filter(r =>
+    (r.agreementUnits !== null && r.agreementUnits > 0) ||
+    (r.collected !== null && r.collected !== 0) ||
+    (r.outstanding !== null && r.outstanding !== 0)
+  );
 
   renderGenericTable({
     theadId:'crmProjectTheadRow', tbodyId:'crmProjectTbody', tfootId:'crmProjectTfootRow', searchId:'crmProjectSearchBox',
