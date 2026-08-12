@@ -911,6 +911,7 @@ const PROJECT_INFO = {
   'MP Eden': { location:'Kalyanakuppam', property:'Plot' },
   'MP Golden Heights': { location:'Kovur', property:'Apartment' },
   'MP Green Bay': { location:'Kundrathur', property:'Apartment' },
+  'MP Green Bay CMDA': { location:'Kundrathur', property:'Apartment' },
   'MP Hila': { location:'Pozhichallur', property:'Apartment' },
   'MP Madang Gardens': { location:'Sirukadal', property:'Plot' },
   'MP Malarvanam': { location:'Sirukadal', property:'Plot' },
@@ -925,11 +926,22 @@ const PROJECT_INFO = {
   'MP Varam': { location:'Vanagaram', property:'Apartment' },
   'The White House': { location:'Manapakkam', property:'Apartment' },
 };
-function getLocation(project){ return (PROJECT_INFO[project] && PROJECT_INFO[project].location) || 'Unmapped'; }
+// Looks up a PROJECT_INFO entry tolerant of spacing/case drift between how a project name is
+// keyed here and how it actually appears in a given ERP export (e.g. "MP VALAS27" vs "MP Valas 27")
+// — normalizes both sides to letters+digits only before comparing, so formatting differences don't
+// silently push a project into "Unmapped" the way an exact-string lookup would.
+const PROJECT_INFO_LOOKUP = {};
+Object.keys(PROJECT_INFO).forEach(k => { PROJECT_INFO_LOOKUP[k.toLowerCase().replace(/[^a-z0-9]/g,'')] = PROJECT_INFO[k]; });
+function lookupProjectInfo(project){
+  if(!project) return null;
+  if(PROJECT_INFO[project]) return PROJECT_INFO[project];
+  return PROJECT_INFO_LOOKUP[(''+project).toLowerCase().replace(/[^a-z0-9]/g,'')] || null;
+}
+function getLocation(project){ const info = lookupProjectInfo(project); return (info && info.location) || 'Unmapped'; }
 function getPropertyType(project, unitType){
   // Prefer MP Developers' own project-level classification; only guess from the unit type
   // (Sales & Stock Summary report) for projects not yet in that list.
-  const known = PROJECT_INFO[project];
+  const known = lookupProjectInfo(project);
   if(known && known.property) return known.property;
   return (unitType || '').toUpperCase().includes('PLOT') ? 'Plot' : 'Apartment';
 }
