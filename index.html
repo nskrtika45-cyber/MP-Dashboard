@@ -235,8 +235,10 @@
   .filter-chip{background:var(--navy-pale);color:var(--navy);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-weight:600;}
   .filter-note{color:var(--muted);}
 
-  /* Tabs */
-  .tabs{display:flex;gap:4px;margin-bottom:22px;border-bottom:1px solid var(--border);}
+  /* Section nav — was a tab switcher, now a sticky jump-to-section bar since every section renders
+     on one continuous page */
+  .tabs{display:flex;gap:4px;margin-bottom:22px;border-bottom:1px solid var(--border);
+    position:sticky;top:0;background:var(--bg);z-index:20;padding-top:4px;}
   .tab-btn{
     appearance:none;border:none;background:transparent;padding:11px 20px;font-family:'Inter',sans-serif;
     font-weight:600;font-size:13.5px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;
@@ -244,8 +246,7 @@
   }
   .tab-btn:hover{color:var(--navy);}
   .tab-btn.active{color:var(--navy);border-bottom-color:var(--gold);}
-  .page{display:none;}
-  .page.active{display:block;}
+  .page{display:block;scroll-margin-top:56px;}
 
   .section-title{display:flex;align-items:baseline;gap:10px;margin:34px 0 14px;}
   .section-title h2{font-size:16px;margin:0;color:var(--navy);text-transform:uppercase;letter-spacing:.06em;}
@@ -478,7 +479,9 @@
     </div>
 
     <!-- ================= OVERVIEW PAGE ================= -->
-    <div class="page active" id="page-overview">
+    <div class="page" id="page-overview">
+
+      <div class="section-title group"><h2>Overview</h2><div class="line"></div></div>
 
       <div class="kpi-grid" id="kpiGrid"></div>
 
@@ -603,6 +606,8 @@
 
 <!-- ================= UNSOLD PAGE ================= -->
     <div class="page" id="page-unsold">
+
+      <div class="section-title group"><h2>Unsold</h2><div class="line"></div></div>
 
       <div class="kpi-grid" id="kpiGridAvail"></div>
 
@@ -998,6 +1003,8 @@ function updateSectionVisibility(){
   const hasBookings = RAW.bookingRecords.length > 0;
 
   document.getElementById('crmTabBtn').style.display = (hasAgreement || hasCollectionOrOutstanding) ? '' : 'none';
+  const crmPage = document.getElementById('page-crm');
+  if(crmPage) crmPage.style.display = (hasAgreement || hasCollectionOrOutstanding) ? '' : 'none';
 
   const agreementDashboard = document.getElementById('crmAgreementDashboard');
   const agreementDataSection = document.getElementById('crmAgreementData');
@@ -1251,20 +1258,30 @@ auth.onAuthStateChanged(async (user)=>{
 });
 
 
-// tab switching
+// section nav — clicking scrolls to that section instead of hiding the others, since every
+// section now renders on one continuous page at once
 document.querySelectorAll('.tab-btn').forEach(btn=>{
   btn.addEventListener('click', ()=>{
-    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-    btn.classList.add('active');
     const page = document.getElementById('page-' + btn.dataset.page);
-    page.classList.add('active');
-    // Chart.js sizes canvases based on visible parent width; nudge a resize once shown
-    requestAnimationFrame(()=>{
-      Object.values(charts).forEach(c=>{ if(c && c.resize) c.resize(); });
-    });
+    if(page) page.scrollIntoView({behavior:'smooth', block:'start'});
   });
 });
+
+// Keep the nav bar's active-state in sync with whichever section is actually in view while scrolling
+(function(){
+  const sections = ['overview','sales','unsold','crm']
+    .map(name => ({ name, el: document.getElementById('page-'+name) }))
+    .filter(s => s.el);
+  if(!sections.length || !('IntersectionObserver' in window)) return;
+  const observer = new IntersectionObserver((entries)=>{
+    entries.forEach(entry=>{
+      if(!entry.isIntersecting) return;
+      const name = entry.target.id.replace('page-','');
+      document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.page === name));
+    });
+  }, { rootMargin: '-30% 0px -60% 0px', threshold: 0 });
+  sections.forEach(s => observer.observe(s.el));
+})();
 
 let file1Data = null, file2Data = null, file3Data = null, file4Data = null, file5Data = null, file6Data = null, file7Data = null;
 
