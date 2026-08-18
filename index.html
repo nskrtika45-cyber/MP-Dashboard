@@ -2103,8 +2103,23 @@ function populateMonthOptions(){
 function applyFiltersAndRender(){
   const dateFilterActive = !!(filterState.fy || filterState.month);
 
+  // Booking Report gives a cleaner sale value (Base Cost only — GST/Corpus/Registration/Maintenance
+  // excluded) than Stock Summary's own Net Amount, which typically still includes those charges. So
+  // for any Sold unit that has a matching Booking Report entry (same Project + Unit No), use ITS
+  // value instead of Stock Summary's Net Amount — while still trusting Stock Summary alone for WHICH
+  // units currently count as Sold (Booking Report is a historical log, not a current-status source,
+  // so it can't be used to decide Sold vs Available — only to refine the value of units already
+  // known to be Sold). Units with no Booking Report match keep their Stock Summary Net Amount as-is;
+  // there's usually only a handful of these, and they're a known, bounded exception rather than a
+  // silent gap.
+  const bookingValueByUnit = {};
+  RAW.bookingRecords.forEach(r=>{ bookingValueByUnit[r.project+'|'+String(r.unitNo).trim()] = r.bookingValue; });
+
   // ---- Sold-side vs Available-side of Stock Summary Sheet1 ----
-  const soldRecs = RAW.stockUnitRecords.filter(r=>r.status==='Sold');
+  const soldRecs = RAW.stockUnitRecords.filter(r=>r.status==='Sold').map(r=>{
+    const match = bookingValueByUnit[r.project+'|'+String(r.unitNo).trim()];
+    return match !== undefined ? { ...r, amount: match } : r;
+  });
   const availRecs = RAW.stockUnitRecords.filter(r=>r.status==='Available');
   const soldFiltered = filterFull(soldRecs, 'bookingDate');           // respects Project + FY + Month
   const availFiltered = filterProjectOnly(availRecs);                 // snapshot — Project only
