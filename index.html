@@ -1475,7 +1475,7 @@ function parseStockSummary(wb){
     const area = (superAreaColIdx !== undefined && typeof r[superAreaColIdx] === 'number') ? r[superAreaColIdx] : 0;
     const unitType = (unitTypeColIdx !== undefined && r[unitTypeColIdx]) ? r[unitTypeColIdx] : '';
     const unitNo = (unitNoColIdx !== undefined && r[unitNoColIdx]) ? r[unitNoColIdx] : '';
-    unitRecords.push({ project: proj, status, bookingDate, amount: amt, area, unitType, unitNo });
+    unitRecords.push({ project: proj, subProject: rawSubProj || '', status, bookingDate, amount: amt, area, unitType, unitNo });
   }
   return {stock, unitRecords};
 }
@@ -1944,18 +1944,26 @@ function applyFiltersAndRender(){
   const dateFilterActive = !!(filterState.fy || filterState.month);
   // Booking Report gives a cleaner sale value (Base Cost only — GST/Corpus/Registration/Maintenance
   // excluded) than Stock Summary's own Net Amount, which typically still includes those charges. So
-  // for any Sold unit that has a matching Booking Report entry (same Project + Unit No), use ITS
-  // value instead of Stock Summary's Net Amount — while still trusting Stock Summary alone for WHICH
-  // units currently count as Sold (Booking Report is a historical log, not a current-status source,
-  // so it can't be used to decide Sold vs Available — only to refine the value of units already
+  // for any Sold unit that has a matching Booking Report entry (same Project + Sub Project + Unit No),
+  // use ITS value instead of Stock Summary's Net Amount — while still trusting Stock Summary alone for
+  // WHICH units currently count as Sold (Booking Report is a historical log, not a current-status
+  // source, so it can't be used to decide Sold vs Available — only to refine the value of units already
   // known to be Sold). Units with no Booking Report match keep their Stock Summary Net Amount as-is;
   // there's usually only a handful of these, and they're a known, bounded exception rather than a
   // silent gap.
+  // IMPORTANT: the match key MUST include Sub Project, not just Project + Unit No. Several projects
+  // (MP Kumudam Enclave, MP New Colony, MP Nilay Nivas, and others) have multiple towers/sub-projects
+  // that reuse the same unit labels (F1, F2, S1, S2, G1, G2, T1, T2, ...) — a Project+Unit-only key
+  // collided across 61 such unit labels, silently overwriting one tower's booking value with another's
+  // and pulling the wrong figure into Sales Value for every unit sharing that label. Keying on all
+  // three fields together eliminates every collision and is what actually closes the ~₹4 Cr gap
+  // between Sales Value and Total Booking Value down to the ~₹1.4 Cr that's genuinely explained by
+  // the 2 in-abeyance units that have no Booking Report row at all (see Units Tracked tile).
   const bookingValueByUnit = {};
-  RAW.bookingRecords.forEach(r=>{ bookingValueByUnit[r.project+'|'+String(r.unitNo).trim()] = r.bookingValue; });
+  RAW.bookingRecords.forEach(r=>{ bookingValueByUnit[r.project+'|'+(r.subProject||'').trim().toLowerCase()+'|'+String(r.unitNo).trim()] = r.bookingValue; });
   // ---- Sold-side vs Available-side of Stock Summary Sheet1 ----
   const soldRecs = RAW.stockUnitRecords.filter(r=>r.status==='Sold').map(r=>{
-    const match = bookingValueByUnit[r.project+'|'+String(r.unitNo).trim()];
+    const match = bookingValueByUnit[r.project+'|'+(r.subProject||'').trim().toLowerCase()+'|'+String(r.unitNo).trim()];
     return match !== undefined ? { ...r, amount: match } : r;
   });
   const availRecs = RAW.stockUnitRecords.filter(r=>r.status==='Available');
@@ -2312,16 +2320,22 @@ function renderCharts(){
 function renderSoldPage(){
   const t = grandTotals();
   const soldArea = masterData.reduce((a,m)=>a+(m.soldArea||0),0);
-  const periodActiveSold = !!(filterState.fy || filterState.month);
   const hasCancellationReport = RAW.cancellationRecords.length > 0;
   const showGross = hasCancellationReport && soldValueMode === 'gross';
   const toggleEl = document.getElementById('soldValueToggle');
   if(toggleEl) toggleEl.style.display = hasCancellationReport ? 'flex' : 'none';
   const displayUnits = showGross ? t.soldUnits + genuineCancelledUnits : t.soldUnits;
   const displayValue = showGross ? t.soldValue + genuineCancelledValue : t.soldValue;
+  // Sales Value = Total Booking Value (the 926 units matched to an actual Booking Report row) +
+  // an "in abeyance" remainder (the units that are genuinely Sold per Stock Summary but have no
+  // Booking Report row at all — same units flagged on the Units Tracked tile). Shown split out here
+  // instead of as a separate "Total Booking Value" tile, so the two figures are never presented as
+  // two unexplained numbers that don't match.
+  const totalBookingValue = bookingData.reduce((a,r)=>a+r.bookingValue, 0);
+  const inAbeyanceValue = t.soldValue - totalBookingValue;
   const soldValueSub = showGross
     ? `Incl. ${fmtNum(genuineCancelledUnits)} genuinely-cancelled bookings (${fmtINRCr(genuineCancelledValue)})`
-    : (periodActiveSold ? 'Booked in the selected period, net of cancellations' : 'Total booked value to date, net of cancellations');
+    : `Total booking value ${fmtINRCr(totalBookingValue)} and in abeyance ${fmtINRCr(inAbeyanceValue)}`;
   document.getElementById('kpiGridSold').innerHTML = [
     {lbl:'Sold Units', val: fmtNum(displayUnits), sub: showGross ? `across ${masterData.filter(m=>m.soldUnits>0).length} projects, incl. cancellations` : `across ${masterData.filter(m=>m.soldUnits>0).length} projects`},
     {lbl:'Sales Value', val: fmtINRCr(displayValue), sub: soldValueSub},
@@ -2760,11 +2774,11 @@ function renderBookingPage(){
   const totalValue = bookingData.reduce((a,r)=>a+r.bookingValue,0);
   const totalUnits = bookingData.length;
   const avgValue = totalUnits ? totalValue/totalUnits : 0;
-  // Units Booked is intentionally not shown as its own tile — it's folded into the "Units Tracked"
-  // tile on the Agreement Register KPI grid, which explains it against the in-abeyance count instead
-  // of letting it sit as an unexplained third number next to Sold Units / Units Tracked.
+  // Units Booked and Total Booking Value are intentionally not shown as their own tiles here — Units
+  // Booked is folded into the "Units Tracked" tile (Agreement Register grid), and Total Booking Value
+  // is folded into the "Sales Value" tile (Sold grid) as its split "Total booking value + in abeyance"
+  // sub-text, so neither sits as an unexplained extra number next to Sold Units / Sales Value.
   document.getElementById('kpiGridBookings').innerHTML = [
-    {lbl:'Total Booking Value', val: fmtINRCr(totalValue), sub:'Sum of all booking cost components'},
     {lbl:'Avg Booking Value', val: fmtINRCr(avgValue), sub:'per unit booked'},
     {lbl:'Months Covered', val: fmtNum(bookingMonthData.length), sub: bookingFYData.length ? `${bookingFYData[0].label} to ${bookingFYData[bookingFYData.length-1].label}` : ''},
   ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
