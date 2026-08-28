@@ -422,22 +422,6 @@
   </div>
   <div id="dashboard">
     <div class="hero-split" id="heroSplit"></div>
-    <div class="section-title group"><h2>All Key Metrics</h2><div class="line"></div></div>
-    <div class="sold-toggle" id="soldValueToggle" style="display:none;">
-      <span class="sold-toggle-label">Booking Value:</span>
-      <div class="toggle-tabs">
-        <button type="button" class="toggle-tab active" data-mode="net">Active Bookings Only</button>
-        <button type="button" class="toggle-tab" data-mode="gross">All Bookings (Including Cancelled)</button>
-      </div>
-    </div>
-    <div class="kpi-grid" id="kpiGridMaster">
-      <span id="kpiGrid" style="display:contents"></span>
-      <span id="kpiGridSold" style="display:contents"></span>
-      <span id="kpiGridAvail" style="display:contents"></span>
-      <span id="kpiGridBookings" style="display:contents"></span>
-      <span id="kpiGridAgreement" style="display:contents"></span>
-      <span id="kpiGridCollection" style="display:contents"></span>
-    </div>
     <div class="filter-bar">
       <div class="filter-field">
         <label for="filterProject">Project</label>
@@ -454,6 +438,22 @@
       <button class="btn btn-ghost" id="filterClear">Clear filters</button>
     </div>
     <div class="filter-summary" id="filterSummary" style="display:none;"></div>
+    <div class="section-title group"><h2>All Key Metrics</h2><div class="line"></div></div>
+    <div class="sold-toggle" id="soldValueToggle" style="display:none;">
+      <span class="sold-toggle-label">Booking Value:</span>
+      <div class="toggle-tabs">
+        <button type="button" class="toggle-tab active" data-mode="net">Active Bookings Only</button>
+        <button type="button" class="toggle-tab" data-mode="gross">All Bookings (Including Cancelled)</button>
+      </div>
+    </div>
+    <div class="kpi-grid" id="kpiGridMaster">
+      <span id="kpiGrid" style="display:contents"></span>
+      <span id="kpiGridSold" style="display:contents"></span>
+      <span id="kpiGridAvail" style="display:contents"></span>
+      <span id="kpiGridBookings" style="display:contents"></span>
+      <span id="kpiGridAgreement" style="display:contents"></span>
+      <span id="kpiGridCollection" style="display:contents"></span>
+    </div>
     <div class="tabs">
       <button class="tab-btn active" data-page="overview">Overview</button>
       <button class="tab-btn" data-page="sales">Sales</button>
