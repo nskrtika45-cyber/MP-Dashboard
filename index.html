@@ -2164,7 +2164,15 @@ function renderKPIs(){
 }
 function renderHero(){
   const t = grandTotals();
-  const availPct = t.totalValue ? (t.availValue/t.totalValue*100) : 0;
+  // Mirror the Sold page's "Booking Value" toggle here too — this banner previously always showed
+  // the net Sales Value regardless of the toggle, so switching to "All Bookings (Including Cancelled)"
+  // updated the KPI tile below but left this top figure looking frozen/wrong by comparison.
+  const hasCancellationReport = RAW.cancellationRecords.length > 0;
+  const showGross = hasCancellationReport && soldValueMode === 'gross';
+  const displayUnits = showGross ? t.soldUnits + genuineCancelledUnits : t.soldUnits;
+  const displayValue = showGross ? t.soldValue + genuineCancelledValue : t.soldValue;
+  const totalForSplit = t.availValue + displayValue;
+  const availPct = totalForSplit ? (t.availValue/totalForSplit*100) : 0;
   const soldPct = 100 - availPct;
   document.getElementById('heroSplit').innerHTML = `
     <div class="hero-half avail">
@@ -2175,8 +2183,8 @@ function renderHero(){
     </div>
     <div class="hero-half sold">
       <div class="lbl">Sales Value</div>
-      <div class="big num">${fmtINRCr(t.soldValue)}</div>
-      <div class="sub2">${fmtNum(t.soldUnits)} units &middot; ${soldPct.toFixed(1)}% of portfolio</div>
+      <div class="big num">${fmtINRCr(displayValue)}</div>
+      <div class="sub2">${fmtNum(displayUnits)} units &middot; ${soldPct.toFixed(1)}% of portfolio</div>
       <div class="hero-bar"><div class="fill" style="width:${soldPct}%"></div></div>
     </div>
   `;
@@ -3106,6 +3114,7 @@ document.querySelectorAll('.toggle-tab').forEach(btn=>{
     btn.classList.add('active');
     soldValueMode = btn.dataset.mode;
     renderSoldPage();
+    renderHero();
   });
 });
 /* ============ EXPORT ============ */
