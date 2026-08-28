@@ -424,10 +424,10 @@
     <div class="hero-split" id="heroSplit"></div>
     <div class="section-title group"><h2>All Key Metrics</h2><div class="line"></div></div>
     <div class="sold-toggle" id="soldValueToggle" style="display:none;">
-      <span class="sold-toggle-label">Sales value:</span>
+      <span class="sold-toggle-label">Booking Value:</span>
       <div class="toggle-tabs">
-        <button type="button" class="toggle-tab active" data-mode="net">Without Cancellation</button>
-        <button type="button" class="toggle-tab" data-mode="gross">With Cancellation</button>
+        <button type="button" class="toggle-tab active" data-mode="net">Active Bookings Only</button>
+        <button type="button" class="toggle-tab" data-mode="gross">All Bookings (Including Cancelled)</button>
       </div>
     </div>
     <div class="kpi-grid" id="kpiGridMaster">
@@ -2460,8 +2460,13 @@ function renderAgreementPage(){
   const { statusList, projectPending } = buildAgreementSummary(agreementData);
   const total = agreementData.length;
   const regnRecorded = agreementData.filter(r=>r.regnDate!=='').length;
+  // Units Tracked (Agreement Register) runs ahead of Units Booked (Booking Report) by exactly the
+  // units that are "In Abeyance" — sold/agreement-stage units that never got a Booking Report row
+  // created for them. Folded into one tile instead of showing Units Booked separately, so the gap
+  // between the two source reports is explained inline rather than looking like an error.
+  const inAbeyanceCount = agreementData.filter(r => (r.unitStatus||'').trim().toLowerCase() === 'in abeyance').length;
   document.getElementById('kpiGridAgreement').innerHTML = [
-    {lbl:'Units Tracked', val: fmtNum(total), sub:'From the Agreement Register report'},
+    {lbl:'Units Tracked', val: fmtNum(total), sub:`Units booked ${fmtNum(bookingData.length)} and in abeyance ${fmtNum(inAbeyanceCount)}`},
     {lbl:'Total Agreement Signed', val: fmtNum(agreementSignedCount), sub: `${fmtINRCr(agreementSignedValue)} booking value &middot; by Agreement Date`},
     {lbl:'Yet to Sign', val: fmtNum(agreementYetToSignCount), sub: `${fmtINRCr(agreementYetToSignValue)} booking value &middot; current backlog`},
     {lbl:'Total Unit Registered', val: fmtNum(agreementRegisteredCount), sub: `${fmtINRCr(agreementRegisteredValue)} booking value &middot; by Regn Date`},
@@ -2755,9 +2760,10 @@ function renderBookingPage(){
   const totalValue = bookingData.reduce((a,r)=>a+r.bookingValue,0);
   const totalUnits = bookingData.length;
   const avgValue = totalUnits ? totalValue/totalUnits : 0;
-  const projectsCount = new Set(bookingData.map(r=>r.project)).size;
+  // Units Booked is intentionally not shown as its own tile — it's folded into the "Units Tracked"
+  // tile on the Agreement Register KPI grid, which explains it against the in-abeyance count instead
+  // of letting it sit as an unexplained third number next to Sold Units / Units Tracked.
   document.getElementById('kpiGridBookings').innerHTML = [
-    {lbl:'Units Booked', val: fmtNum(totalUnits), sub:`across ${fmtNum(projectsCount)} projects`},
     {lbl:'Total Booking Value', val: fmtINRCr(totalValue), sub:'Sum of all booking cost components'},
     {lbl:'Avg Booking Value', val: fmtINRCr(avgValue), sub:'per unit booked'},
     {lbl:'Months Covered', val: fmtNum(bookingMonthData.length), sub: bookingFYData.length ? `${bookingFYData[0].label} to ${bookingFYData[bookingFYData.length-1].label}` : ''},
