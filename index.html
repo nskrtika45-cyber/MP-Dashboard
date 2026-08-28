@@ -2488,13 +2488,18 @@ function renderAgreementPage(){
   const { statusList, projectPending } = buildAgreementSummary(agreementData);
   const total = agreementData.length;
   const regnRecorded = agreementData.filter(r=>r.regnDate!=='').length;
-  // Units Tracked (Agreement Register) runs ahead of Units Booked (Booking Report) by exactly the
-  // units that are "In Abeyance" — sold/agreement-stage units that never got a Booking Report row
-  // created for them. Folded into one tile instead of showing Units Booked separately, so the gap
-  // between the two source reports is explained inline rather than looking like an error.
-  const inAbeyanceCount = agreementData.filter(r => (r.unitStatus||'').trim().toLowerCase() === 'in abeyance').length;
+  // Units Tracked (Agreement Register) runs ahead of Units Booked (Booking Report) by the units that
+  // have no matching Booking Report row at all — "in abeyance" here means "missing from Booking
+  // Report", NOT literally status = "In Abeyance" (that was tried first, but a unit can be missing
+  // from the Booking Report under any status — In Abeyance, Pending - Finance NOC, Agreement Prepared
+  // & Sent, etc. — so keying off the status text under-counted the gap). Matched by Project + Sub
+  // Project + Unit No, same key used for the Sales Value split, so "booked" + "in abeyance" always
+  // sums to exactly Units Tracked, however the filter is set.
+  const bookingKeySet = new Set(bookingData.map(r => r.project+'|'+(r.subProject||'').trim().toLowerCase()+'|'+String(r.unitNo).trim()));
+  const unitsBookedMatched = agreementData.filter(r => bookingKeySet.has(r.project+'|'+(r.subProject||'').trim().toLowerCase()+'|'+String(r.unitNo).trim())).length;
+  const inAbeyanceCount = total - unitsBookedMatched;
   document.getElementById('kpiGridAgreement').innerHTML = [
-    {lbl:'Units Tracked', val: fmtNum(total), sub:`Units booked ${fmtNum(bookingData.length)} and in abeyance ${fmtNum(inAbeyanceCount)}`},
+    {lbl:'Units Tracked', val: fmtNum(total), sub:`Units booked ${fmtNum(unitsBookedMatched)} and in abeyance ${fmtNum(inAbeyanceCount)}`},
     {lbl:'Total Agreement Signed', val: fmtNum(agreementSignedCount), sub: `${fmtINRCr(agreementSignedValue)} booking value &middot; by Agreement Date`},
     {lbl:'Yet to Sign', val: fmtNum(agreementYetToSignCount), sub: `${fmtINRCr(agreementYetToSignValue)} booking value &middot; no Agreement Date yet`},
     {lbl:'Total Unit Registered', val: fmtNum(agreementRegisteredCount), sub: `${fmtINRCr(agreementRegisteredValue)} booking value &middot; by Regn Date`},
