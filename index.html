@@ -2020,11 +2020,10 @@ function applyFiltersAndRender(){
   agreementSignedValue = signedRecords.reduce((a,r)=>a+(r.agreementValue||0),0);
   agreementRegisteredCount = registeredRecords.length;
   agreementRegisteredValue = registeredRecords.reduce((a,r)=>a+(r.agreementValue||0),0);
-  // "Yet to Sign" / "Yet to be Registered" are current backlog snapshots, not period activity — a
-  // unit with no Agreement/Regn Date can never match an FY/Month filter on that date, so these are
-  // Project-only (like Unsold inventory), showing the live pending count regardless of booking period.
-  const yetToSignRecords = filterProjectOnly(RAW.agreementRecords).filter(r=>r.agreementDate === '');
-  const yetToRegisterRecords = filterProjectOnly(RAW.agreementRecords).filter(r=>r.regnDate === '');
+  // "Yet to Sign" / "Yet to be Registered" — units booked within the selected Project + FY + Month
+  // (by Booking Date, same basis as Units Tracked) whose Agreement/Regn Date is still blank as of now.
+  const yetToSignRecords = filterFull(RAW.agreementRecords, 'bookingDate').filter(r=>r.agreementDate === '');
+  const yetToRegisterRecords = filterFull(RAW.agreementRecords, 'bookingDate').filter(r=>r.regnDate === '');
   agreementYetToSignCount = yetToSignRecords.length;
   agreementYetToSignValue = yetToSignRecords.reduce((a,r)=>a+(r.agreementValue||0),0);
   agreementYetToRegisterCount = yetToRegisterRecords.length;
@@ -2154,9 +2153,16 @@ function grandTotals(){
 }
 function renderKPIs(){
   const t = grandTotals();
+  // Total Units here is a PERIOD total, not the static portfolio size: Sold Units already respects the
+  // FY/Month filter (only units sold within the selected period), while Unsold/Blocked stay snapshot
+  // counts (no transaction date to filter by), matching how the rest of this tile's own sub-text reads.
+  // This deliberately does NOT equal the project's true all-time unit count once a period is selected —
+  // units sold in other months still exist but drop out of this figure — see the Project-wise Detail
+  // table below (and the .xlsx export) for the true, unfiltered total per project.
+  const periodTotalUnits = t.soldUnits + t.availUnits + t.blockedUnits;
   const cards = [
     {lbl:'Projects', val: t.projects, sub: `${masterData.filter(m=>m.totalUnits>0).length} with active stock`},
-    {lbl:'Total Units', val: fmtNum(t.totalUnits), sub: `<b class="pos">${fmtNum(t.soldUnits)}</b> sold &middot; ${fmtNum(t.availUnits)} unsold`},
+    {lbl:'Total Units', val: fmtNum(periodTotalUnits), sub: `<b class="pos">${fmtNum(t.soldUnits)}</b> sold &middot; ${fmtNum(t.availUnits)} unsold`},
   ];
   document.getElementById('kpiGrid').innerHTML = cards.map(c=>`
     <div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>
@@ -2490,9 +2496,9 @@ function renderAgreementPage(){
   document.getElementById('kpiGridAgreement').innerHTML = [
     {lbl:'Units Tracked', val: fmtNum(total), sub:`Units booked ${fmtNum(bookingData.length)} and in abeyance ${fmtNum(inAbeyanceCount)}`},
     {lbl:'Total Agreement Signed', val: fmtNum(agreementSignedCount), sub: `${fmtINRCr(agreementSignedValue)} booking value &middot; by Agreement Date`},
-    {lbl:'Yet to Sign', val: fmtNum(agreementYetToSignCount), sub: `${fmtINRCr(agreementYetToSignValue)} booking value &middot; current backlog`},
+    {lbl:'Yet to Sign', val: fmtNum(agreementYetToSignCount), sub: `${fmtINRCr(agreementYetToSignValue)} booking value &middot; no Agreement Date yet`},
     {lbl:'Total Unit Registered', val: fmtNum(agreementRegisteredCount), sub: `${fmtINRCr(agreementRegisteredValue)} booking value &middot; by Regn Date`},
-    {lbl:'Yet to be Registered', val: fmtNum(agreementYetToRegisterCount), sub: `${fmtINRCr(agreementYetToRegisterValue)} booking value &middot; current backlog`},
+    {lbl:'Yet to be Registered', val: fmtNum(agreementYetToRegisterCount), sub: `${fmtINRCr(agreementYetToRegisterValue)} booking value &middot; no Regn Date yet`},
   ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
@@ -2578,24 +2584,23 @@ function renderCollectionPage(){
   const { projectTotals, allTimeCollected } = buildCollectionSummary(collectionData);
   const unitsRecorded = collectionData.length;
   const periodActive = !!(filterState.fy || filterState.month);
-  // Outstanding Balance / Collection %: prefer the ERP's own Outstanding Payments Report (Net
-  // Receivable) when it's been uploaded — it's authoritative, not an estimate. Falls back to the
-  // Sold-value-minus-Collected approximation otherwise. Either way this is always all-time /
-  // as-on-date, never FY/Month filtered (a snapshot balance, not a period transaction).
+  // Outstanding Balance: prefer the ERP's own Outstanding Payments Report (Net Receivable) when it's
+  // been uploaded — it's authoritative, not an estimate. Falls back to the Sold-value-minus-Collected
+  // approximation otherwise. Either way this is always all-time / as-on-date, never FY/Month filtered
+  // (a snapshot balance, not a period transaction).
   const hasOutstandingReport = outstandingData.length > 0;
-  let outstandingTotal, outstandingByProject, collectionPct, outstandingSub, asOnDateLabel;
+  let outstandingTotal, outstandingByProject, outstandingSub, asOnDateLabel;
   let projDetailByProject = {}; // project -> {units, totalCost, totalReceived, outstanding} — only when hasOutstandingReport
   if(hasOutstandingReport){
-    let totalCostSum = 0, totalReceivedSum = 0, netReceivableSum = 0;
+    let netReceivableSum = 0;
     outstandingData.forEach(r=>{
       if(!projDetailByProject[r.project]) projDetailByProject[r.project] = {units:0, totalCost:0, totalReceived:0, outstanding:0};
       const p = projDetailByProject[r.project];
       p.units += 1; p.totalCost += r.totalCost; p.totalReceived += r.totalReceived; p.outstanding += r.netReceivable;
-      totalCostSum += r.totalCost; totalReceivedSum += r.totalReceived; netReceivableSum += r.netReceivable;
+      netReceivableSum += r.netReceivable;
     });
     outstandingByProject = Object.entries(projDetailByProject).map(([project,d])=>({project, outstanding:d.outstanding})).filter(p=>p.outstanding>0);
     outstandingTotal = netReceivableSum;
-    collectionPct = totalCostSum ? (totalReceivedSum/totalCostSum*100) : 0;
     asOnDateLabel = outstandingData[0].asOnDate;
     outstandingSub = 'Total Balance Outstanding, from Customer Outstanding Report';
   } else {
@@ -2610,7 +2615,6 @@ function renderCollectionPage(){
         outstandingByProject.push({project:proj, outstanding, soldValue:sv, collected:projectTotals[proj].total});
       }
     });
-    collectionPct = matchedSoldValue ? (allTimeCollected/matchedSoldValue*100) : 0;
     outstandingTotal = matchedSoldValue - allTimeCollected;
     outstandingSub = 'Estimated: sold value not yet collected, all-time';
   }
@@ -2619,7 +2623,6 @@ function renderCollectionPage(){
   const totalCollected = periodActive ? collectionPeriodTotal : allTimeCollected;
   document.getElementById('kpiGridCollection').innerHTML = [
     {lbl:'Total Collected', val: fmtINRCr(totalCollected), sub: periodActive ? 'Received in the selected period' : `${fmtNum(unitsRecorded)} units with collection recorded`},
-    {lbl:'Collection %', val: fmtPct(collectionPct), sub:(hasOutstandingReport?'':'Estimated — ') + 'of total cost, all-time (not affected by FY/Month)'},
     {lbl:'Outstanding Balance', val: fmtINRCr(outstandingTotal), sub: outstandingSub},
   ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
