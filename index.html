@@ -2617,7 +2617,7 @@ function renderCollectionPage(){
     outstandingByProject = Object.entries(projDetailByProject).map(([project,d])=>({project, outstanding:d.outstanding})).filter(p=>p.outstanding>0);
     outstandingTotal = netReceivableSum;
     asOnDateLabel = outstandingData[0].asOnDate;
-    outstandingSub = 'Total Outstanding, from Debtor Ageing Report (Summary) — both new sales and CRM files';
+    outstandingSub = 'Total Outstanding — both new sales and CRM files';
   } else {
     const collectionProjects = Object.keys(projectTotals);
     let matchedSoldValue = 0;
@@ -2640,7 +2640,7 @@ function renderCollectionPage(){
   // report is uploaded (the estimated fallback below has no per-unit stage-due figures at all), so it
   // reads as 0 with a prompt to upload it otherwise.
   const netDueAsPerStage = hasOutstandingReport ? outstandingData.reduce((a,r)=>a+(r.netDue||0),0) : 0;
-  const debtorAgeingSub = hasOutstandingReport ? 'Demands raised till date, from Debtor Ageing Report (Summary)' : 'Upload Debtor Ageing Report (Summary)';
+  const debtorAgeingSub = hasOutstandingReport ? 'Demands raised till date' : 'Upload Debtor Ageing Report (Summary)';
   document.getElementById('kpiGridCollection').innerHTML = [
     {lbl:'Total Collected', val: fmtINRCr(totalCollected), sub: (periodActive ? 'Received in the selected period' : `${fmtNum(unitsRecorded)} units with collection recorded`) + ', including Govt charges and Registrations'},
     {lbl:'Net Due as per Stage', val: fmtINRCr(netDueAsPerStage), sub: debtorAgeingSub},
