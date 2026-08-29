@@ -207,18 +207,20 @@
   .hero-half .sub2{font-size:12.5px;opacity:.9;}
   .hero-bar{height:6px;background:rgba(255,255,255,.35);position:relative;margin-top:8px;}
   .hero-bar .fill{position:absolute;left:0;top:0;bottom:0;background:#fff;}
-  /* Module sidebar — top-level switch between the Sales & CRM dashboard and the Marketing dashboard */
+  /* Module sidebar — top-level switch between the Sales & CRM dashboard and the Marketing dashboard.
+     Kept as a slim icon rail (not a wide labelled nav) so almost all the width goes to the actual
+     dashboard content. */
   .module-shell{display:flex;align-items:flex-start;gap:0;}
   .module-nav{
-    display:flex;flex-direction:column;gap:5px;flex-shrink:0;width:180px;
-    position:sticky;top:16px;padding-right:18px;margin-right:26px;border-right:1px solid var(--border);
+    display:flex;flex-direction:column;gap:6px;flex-shrink:0;width:64px;
+    position:sticky;top:16px;padding-right:10px;margin-right:16px;border-right:1px solid var(--border);
   }
   .module-btn{
-    display:flex;align-items:center;gap:10px;appearance:none;border:none;background:transparent;
-    text-align:left;padding:12px 14px;border-radius:8px;font-family:'Inter',sans-serif;font-weight:600;
-    font-size:13.5px;color:var(--muted);cursor:pointer;transition:background .15s,color .15s;
+    display:flex;flex-direction:column;align-items:center;gap:3px;appearance:none;border:none;background:transparent;
+    text-align:center;padding:10px 2px;border-radius:8px;font-family:'Inter',sans-serif;font-weight:600;
+    font-size:10px;line-height:1.15;color:var(--muted);cursor:pointer;transition:background .15s,color .15s;
   }
-  .module-btn .module-icon{font-size:16px;line-height:1;}
+  .module-btn .module-icon{font-size:19px;line-height:1;}
   .module-btn:hover{background:var(--navy-pale);color:var(--navy);}
   .module-btn.active{background:var(--navy);color:#fff;}
   .module-content{flex:1;min-width:0;}
