@@ -207,6 +207,29 @@
   .hero-half .sub2{font-size:12.5px;opacity:.9;}
   .hero-bar{height:6px;background:rgba(255,255,255,.35);position:relative;margin-top:8px;}
   .hero-bar .fill{position:absolute;left:0;top:0;bottom:0;background:#fff;}
+  /* Module sidebar — top-level switch between the Sales & CRM dashboard and the Marketing dashboard */
+  .module-shell{display:flex;align-items:flex-start;gap:0;}
+  .module-nav{
+    display:flex;flex-direction:column;gap:5px;flex-shrink:0;width:180px;
+    position:sticky;top:16px;padding-right:18px;margin-right:26px;border-right:1px solid var(--border);
+  }
+  .module-btn{
+    display:flex;align-items:center;gap:10px;appearance:none;border:none;background:transparent;
+    text-align:left;padding:12px 14px;border-radius:8px;font-family:'Inter',sans-serif;font-weight:600;
+    font-size:13.5px;color:var(--muted);cursor:pointer;transition:background .15s,color .15s;
+  }
+  .module-btn .module-icon{font-size:16px;line-height:1;}
+  .module-btn:hover{background:var(--navy-pale);color:var(--navy);}
+  .module-btn.active{background:var(--navy);color:#fff;}
+  .module-content{flex:1;min-width:0;}
+  @media (max-width:820px){
+    .module-shell{flex-direction:column;}
+    .module-nav{
+      flex-direction:row;width:auto;position:static;border-right:none;
+      border-bottom:1px solid var(--border);padding-right:0;padding-bottom:10px;margin-right:0;margin-bottom:18px;
+    }
+    .module-btn{flex:1;justify-content:center;}
+  }
   /* Filter bar */
   .filter-bar{
     display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;background:var(--card);
@@ -302,7 +325,7 @@
   .footer-row{display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:10px;}
   .footer-note{font-size:11.5px;color:var(--muted);}
   @media print{
-    .upload-card,.loaded-bar,.table-toolbar,.btn-row,header.top .eyebrow,.tabs{display:none !important;}
+    .upload-card,.loaded-bar,.table-toolbar,.btn-row,header.top .eyebrow,.tabs,.module-nav{display:none !important;}
     body{background:#fff;}
     .chart-card,.kpi,.table-card{break-inside:avoid;}
     .page{display:block !important;margin-bottom:40px;}
@@ -404,10 +427,16 @@
         <div class="hint">Adds a Sold Value toggle — with vs. without genuine cancellations (Customer Requested + Due to Non Payment only)</div>
         <input type="file" id="file7" accept=".xlsx">
       </label>
+      <label class="drop" id="drop8">
+        <div class="label">8 &middot; Marketing Payment Summary Report <span style="text-transform:none;font-weight:400;">(optional)</span></div>
+        <div class="fname" id="fname8">Click to choose file (.xlsx)</div>
+        <div class="hint">Adds the Marketing module — promotion work orders, certified value, advances, payments &amp; outstanding</div>
+        <input type="file" id="file8" accept=".xlsx">
+      </label>
     </div>
     <div class="btn-row">
       <button class="btn btn-primary" id="genBtn" disabled>Generate &amp; publish dashboard</button>
-      <span class="footer-note">Files 1 &amp; 2 are required each month; files 3–7 are optional and unlock extra tabs or detail. Publishing makes this visible to Management.</span>
+      <span class="footer-note">Files 1 &amp; 2 are required each month; files 3–8 are optional and unlock extra tabs or detail. Publishing makes this visible to Management.</span>
     </div>
     <div class="err" id="errMsg"></div>
     <div class="publish-status" id="publishStatus" style="display:none;"></div>
@@ -421,6 +450,17 @@
     <p>Check back after the MIS team uploads this month's reports. If this message doesn't go away after they've published, this dashboard may be open outside Claude.ai — see the note MIS was given about where this needs to be opened.</p>
   </div>
   <div id="dashboard">
+    <div class="module-shell">
+      <nav class="module-nav" id="moduleNav">
+        <button type="button" class="module-btn active" data-module="salescrm">
+          <span class="module-icon">🏠</span><span>Sales &amp; CRM</span>
+        </button>
+        <button type="button" class="module-btn" data-module="marketing">
+          <span class="module-icon">📣</span><span>Marketing</span>
+        </button>
+      </nav>
+      <div class="module-content">
+    <div id="salesCrmModule">
     <div class="hero-split" id="heroSplit"></div>
     <div class="filter-bar">
       <div class="filter-field">
@@ -628,6 +668,80 @@
       </div>
       </div>
     </div>
+    </div>
+    <!-- ================= MARKETING MODULE ================= -->
+    <div id="marketingModule" style="display:none;">
+      <div class="section-title group"><h2>Marketing</h2><div class="line"></div></div>
+      <div class="empty-state" id="marketingEmptyState">
+        <h2>No Marketing data yet</h2>
+        <p>Upload the Marketing Payment Summary Report (file 8 on the upload panel) and publish to see the Marketing dashboard here.</p>
+      </div>
+      <div id="marketingContent" style="display:none;">
+      <div class="filter-bar">
+        <div class="filter-field">
+          <label for="filterMarketingProject">Project</label>
+          <select id="filterMarketingProject"><option value="">All Projects</option></select>
+        </div>
+        <div class="filter-field">
+          <label for="filterMarketingType">Promotion Type</label>
+          <select id="filterMarketingType">
+            <option value="">All Types</option>
+            <option value="Project Related">Project Related</option>
+            <option value="Brand Promotion Related">Brand Promotion Related</option>
+          </select>
+        </div>
+        <button class="btn btn-ghost" id="filterMarketingClear">Clear filters</button>
+      </div>
+      <div class="section-title group"><h2>All Key Metrics</h2><div class="line"></div></div>
+      <div class="kpi-grid" id="kpiGridMarketing"></div>
+      <div class="section-title"><h2>Promotion Value by Project &amp; Activity</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="chart-card"><h3>Work order value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingProject"></canvas></div></div>
+        <div class="chart-card"><h3>Outstanding payable by promotion activity (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingActivity"></canvas></div></div>
+      </div>
+      <div class="section-title"><h2>Project-wise Marketing Detail</h2><div class="line"></div></div>
+      <div class="table-toolbar">
+        <input type="text" id="marketingProjectSearchBox" placeholder="Search project name...">
+      </div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="marketingProjectTable">
+            <thead><tr id="marketingProjectTheadRow"></tr></thead>
+            <tbody id="marketingProjectTbody"></tbody>
+            <tfoot><tr id="marketingProjectTfootRow"></tr></tfoot>
+          </table>
+        </div>
+      </div>
+      <div class="section-title"><h2>Vendor-wise Marketing Detail</h2><div class="line"></div></div>
+      <div class="table-toolbar">
+        <input type="text" id="marketingVendorSearchBox" placeholder="Search agent / vendor name...">
+      </div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="marketingVendorTable">
+            <thead><tr id="marketingVendorTheadRow"></tr></thead>
+            <tbody id="marketingVendorTbody"></tbody>
+            <tfoot><tr id="marketingVendorTfootRow"></tr></tfoot>
+          </table>
+        </div>
+      </div>
+      <div class="section-title"><h2>Unit-wise Promotion Detail</h2><div class="line"></div></div>
+      <div class="table-toolbar">
+        <input type="text" id="marketingSearchBox" placeholder="Search project, activity, agent or promotion no...">
+      </div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="marketingTable">
+            <thead><tr id="marketingTheadRow"></tr></thead>
+            <tbody id="marketingTbody"></tbody>
+            <tfoot><tr id="marketingTfootRow"></tr></tfoot>
+          </table>
+        </div>
+      </div>
+      </div>
+    </div>
+    </div>
+    </div>
   </div>
 </div>
 <div id="adminUsersPanel" style="display:none;">
@@ -684,7 +798,7 @@ const db = firebase.firestore();
 // Firestore caps each document at 1MiB. The combined RAW data can exceed that (it's already
 // ~1.4MB with 5 reports loaded), so each RAW.* array is stored as its own small document instead
 // of one big one — every individual piece has comfortable headroom to keep growing month to month.
-const RAW_KEYS = ['customerRecords','stockDict','stockUnitRecords','agreementRecords','collectionReceiptRecords','bookingRecords','outstandingRecords','cancellationRecords'];
+const RAW_KEYS = ['customerRecords','stockDict','stockUnitRecords','agreementRecords','collectionReceiptRecords','bookingRecords','outstandingRecords','cancellationRecords','promotionRecords'];
 // Project -> physical location & property type, as supplied by MP Developers (not derivable from
 // any ERP report). Projects not in this list show under "Unmapped" in the Location Wise view
 // rather than being silently dropped or guessed at — flag those to be added here as they come up.
@@ -858,6 +972,11 @@ function updateSectionVisibility(){
   const overviewBookingsSection = document.getElementById('overviewBookingsSection');
   if(overviewBookingsHeader) overviewBookingsHeader.style.display = hasBookings ? '' : 'none';
   if(overviewBookingsSection) overviewBookingsSection.style.display = hasBookings ? '' : 'none';
+  const hasMarketing = RAW.promotionRecords.length > 0;
+  const marketingEmpty = document.getElementById('marketingEmptyState');
+  const marketingContent = document.getElementById('marketingContent');
+  if(marketingEmpty) marketingEmpty.style.display = hasMarketing ? 'none' : '';
+  if(marketingContent) marketingContent.style.display = hasMarketing ? '' : 'none';
 }
 async function tryLoadPublishedData(){
   try{
@@ -866,15 +985,24 @@ async function tryLoadPublishedData(){
     const meta = metaDoc.data();
     const chunkDocs = await Promise.all(RAW_KEYS.map(k => DASH_COL.doc('chunk_'+k).get()));
     const newRAW = {};
+    // A dashboard published before a given RAW key existed (e.g. promotionRecords, added for the
+    // Marketing module) won't have that chunk doc at all — treat it as "not uploaded yet" rather
+    // than failing the whole load, so older published dashboards keep working until MIS re-publishes.
+    const OPTIONAL_KEYS_IF_MISSING = ['promotionRecords'];
     for(let i=0;i<RAW_KEYS.length;i++){
-      if(!chunkDocs[i].exists){ console.error('Missing data chunk:', RAW_KEYS[i]); return false; }
+      if(!chunkDocs[i].exists){
+        if(OPTIONAL_KEYS_IF_MISSING.includes(RAW_KEYS[i])){ newRAW[RAW_KEYS[i]] = []; continue; }
+        console.error('Missing data chunk:', RAW_KEYS[i]); return false;
+      }
       newRAW[RAW_KEYS[i]] = JSON.parse(chunkDocs[i].data().data);
     }
     RAW = newRAW;
     updateSectionVisibility();
     lastPublished = { at: meta.generatedAt, files: meta.sourceFiles || [] };
     filterState = { project:'', fy:'', month:'' };
+    marketingFilterState = { project: '', promotionType: '' };
     populateFilterOptions();
+    populateMarketingFilterOptions();
     applyFiltersAndRender();
     updateLastUpdatedBadge();
     return true;
@@ -1102,7 +1230,19 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
   }, { rootMargin: '-30% 0px -60% 0px', threshold: 0 });
   sections.forEach(s => observer.observe(s.el));
 })();
-let file1Data = null, file2Data = null, file3Data = null, file4Data = null, file5Data = null, file6Data = null, file7Data = null;
+// Top-level module switch — Sales & CRM vs Marketing. Only one module's content is shown at a
+// time; the sticky section-nav (.tab-btn) above only ever scrolls within Sales & CRM, so it stays
+// hidden while Marketing is active.
+document.querySelectorAll('.module-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.module-btn').forEach(b=>b.classList.toggle('active', b===btn));
+    const mod = btn.dataset.module;
+    document.getElementById('salesCrmModule').style.display = mod === 'salescrm' ? '' : 'none';
+    document.getElementById('marketingModule').style.display = mod === 'marketing' ? '' : 'none';
+    window.scrollTo({top:0, behavior:'smooth'});
+  });
+});
+let file1Data = null, file2Data = null, file3Data = null, file4Data = null, file5Data = null, file6Data = null, file7Data = null, file8Data = null;
 // RAW = unfiltered per-record data, parsed once when files load. Everything the dashboard renders
 // is derived from RAW by applyFiltersAndRender() so the Project / Financial Year / Month filters
 // can recompute every KPI, chart and table consistently instead of just hiding rows visually.
@@ -1115,8 +1255,11 @@ let RAW = {
   bookingRecords: [],          // Booking Report: project, bookingDate, value
   outstandingRecords: [],      // Debtor Ageing Report (Summary): project, unit, totalCost, dueAsOnDay, totalReceived, netDue, netReceivable (no dates — snapshot as-on-date)
   cancellationRecords: [],     // Customer Cancellation Report: project, bookingDate, unitValue, cancellationDate, reason
+  promotionRecords: [],        // Marketing Payment Summary Report: project, promotion type/activity/no, agent,
+                                // request date, WO/certificate/advance/payment/outstanding amounts — see Marketing module
 };
 let filterState = { project: '', fy: '', month: '' };
+let marketingFilterState = { project: '', promotionType: '' };
 // Derived / currently-displayed data — render functions read these exactly as before.
 let masterData = [];
 let fyData = [];
@@ -1171,6 +1314,7 @@ wireDrop('drop4','file4','fname4', f=>{ file4Data = f; checkReady(); });
 wireDrop('drop5','file5','fname5', f=>{ file5Data = f; checkReady(); });
 wireDrop('drop6','file6','fname6', f=>{ file6Data = f; checkReady(); });
 wireDrop('drop7','file7','fname7', f=>{ file7Data = f; checkReady(); });
+wireDrop('drop8','file8','fname8', f=>{ file8Data = f; checkReady(); });
 function checkReady(){
   document.getElementById('genBtn').disabled = !(file1Data && file2Data);
 }
@@ -1214,11 +1358,19 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
     } else {
       RAW.cancellationRecords = [];
     }
+    if(file8Data){
+      const wb8 = await readFileAsWB(file8Data);
+      RAW.promotionRecords = parsePromotionPaymentsReport(wb8);
+    } else {
+      RAW.promotionRecords = [];
+    }
     updateSectionVisibility();
     filterState = { project: '', fy: '', month: '' };
+    marketingFilterState = { project: '', promotionType: '' };
     populateFilterOptions();
+    populateMarketingFilterOptions();
     applyFiltersAndRender();
-    const fileNames = [file1Data.name, file2Data.name, file3Data && file3Data.name, file4Data && file4Data.name, file5Data && file5Data.name, file6Data && file6Data.name, file7Data && file7Data.name].filter(Boolean);
+    const fileNames = [file1Data.name, file2Data.name, file3Data && file3Data.name, file4Data && file4Data.name, file5Data && file5Data.name, file6Data && file6Data.name, file7Data && file7Data.name, file8Data && file8Data.name].filter(Boolean);
     document.getElementById('uploadCard').style.display='none';
     document.getElementById('loadedBar').style.display='flex';
     document.getElementById('loadedNames').textContent = 'Loaded ' + fileNames.join(' + ');
@@ -1784,6 +1936,72 @@ function parseCancellationReport(wb){
   }
   return records;
 }
+// ---- Marketing Payment Summary Report (In4Velocity ERP "Marketing Payment Summary Report") ----
+// Every row is one Promotion Work Order line (a project-level "Project Related" spend, or a
+// company-wide "Brand Promotion Related" spend with no Project Name). The ERP workflow this report
+// reflects: Budget -> Promotion Request (WO) -> Promotion Payment Certificate (work actually
+// certified so far) -> Advances/Payments against that certified value, with any advance later
+// adjusted (recovered) against a certified invoice. "Available Amount (WO)" is what's left of the
+// Work Order that hasn't been certified yet (WO Gross − Certificate Total), i.e. unutilized budget.
+function parsePromotionPaymentsReport(wb){
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = sheetToRows(ws);
+  let headerIdx = rows.findIndex(r => normalizeHeader(r[0]) === 'S.No' && r.some(c => normalizeHeader(c) === 'Promotion No.'));
+  if(headerIdx < 0) headerIdx = 5;
+  const headerRow = rows[headerIdx] || [];
+  const col = {};
+  headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
+  const at = (label, fallback) => col[label] !== undefined ? col[label] : fallback;
+  const companyIdx = at('Company Name', 1);
+  const projectIdx = at('Project Name', 2);
+  const promoTypeIdx = at('Promotion Type', 3);
+  const promoActivityIdx = at('Promotion Activity', 4);
+  const promoNoIdx = at('Promotion No.', 5);
+  const requestDateIdx = at('Promotion Request Date', 7);
+  const budgetStartIdx = at('Budget Start Date', 8);
+  const budgetEndIdx = at('Budget End Date', 9);
+  const agentIdx = at('Agent Name', 10);
+  const woBasicIdx = at('Promotion Request (WO) Basic Amount', 11);
+  const woTaxIdx = at('Payment Request (WO) Tax Amount', 12);
+  const woGrossIdx = at('Promotion Request (WO) Gross Amount', 14);
+  const certBaseIdx = at('Promotion Payment Certificate Base Amount', 15);
+  const certTaxIdx = at('Promotion Payment Certificate Tax Amount', 16);
+  const certTotalIdx = at('Promotion Payment Certificate Total', 17);
+  const tdsIdx = at('TDS Deduction', 18);
+  const advancePaidIdx = at('Advance Paid', 19);
+  const advanceRecoveredIdx = at('Advance Recovered', 20);
+  const debitNoteIdx = at('Debit Note Recovery', 21);
+  const payableIdx = at('Amount Payable', 22);
+  const paidIdx = at('Paid Amount', 23);
+  const yetToBePaidIdx = at('Amount yet to be paid from certified value', 24);
+  const availBasicIdx = at('Available Amount (WO) Basic Amount', 25);
+  const availTaxIdx = at('Available Amount (WO) Tax Amount', 26);
+  const availGrossIdx = at('Available Amount (WO) Gross Amount', 27);
+  const num = v => typeof v === 'number' ? v : (v ? (Number(String(v).replace(/[^0-9.-]/g,'')) || 0) : 0);
+  const records = [];
+  for(let i=headerIdx+1; i<rows.length; i++){
+    const r = rows[i];
+    if(!r) continue;
+    const sno = r[0];
+    // The Grand Total row has a blank S.No — same subtotal-row guard used by every other report here.
+    if(typeof sno !== 'number') continue;
+    const rawProject = r[projectIdx];
+    records.push({
+      sno, company: r[companyIdx] || '',
+      project: rawProject ? normalizeProjectName(rawProject) : '', // blank = company-wide "Brand Promotion Related" spend, not tied to a project
+      promotionType: r[promoTypeIdx] || '', promotionActivity: r[promoActivityIdx] || '',
+      promotionNo: r[promoNoIdx] || '', requestDate: r[requestDateIdx] || '',
+      budgetStart: r[budgetStartIdx] || '', budgetEnd: r[budgetEndIdx] || '', agent: r[agentIdx] || '',
+      woBasic: num(r[woBasicIdx]), woTax: num(r[woTaxIdx]), woGross: num(r[woGrossIdx]),
+      certBase: num(r[certBaseIdx]), certTax: num(r[certTaxIdx]), certTotal: num(r[certTotalIdx]),
+      tds: num(r[tdsIdx]), advancePaid: num(r[advancePaidIdx]), advanceRecovered: num(r[advanceRecoveredIdx]),
+      debitNoteRecovery: num(r[debitNoteIdx]), amountPayable: num(r[payableIdx]), paidAmount: num(r[paidIdx]),
+      yetToBePaid: num(r[yetToBePaidIdx]), availableBasic: num(r[availBasicIdx]), availableTax: num(r[availTaxIdx]),
+      availableGross: num(r[availGrossIdx]),
+    });
+  }
+  return records;
+}
 function buildMasterTable(discount, stock, value){
   const allProjects = new Set([...Object.keys(stock), ...Object.keys(value), ...Object.keys(discount)]);
   const master = [];
@@ -1887,6 +2105,18 @@ function populateMonthOptions(){
   const sorted = [...monthMap.entries()].sort((a,b)=> a[0].localeCompare(b[0]));
   monthSel.innerHTML = '<option value="">All Months</option>' + sorted.map(([key,label])=>`<option value="${key}">${label}</option>`).join('');
   if(sorted.some(([key])=>key===prevVal)) monthSel.value = prevVal; else filterState.month = '';
+}
+// Marketing has its own Project list (many "Brand Promotion Related" rows have no project at all —
+// company-wide spend) and its own filter state, kept separate from the Sales/CRM Project+FY+Month
+// filter above so switching one never resets or narrows the other.
+function populateMarketingFilterOptions(){
+  const projSel = document.getElementById('filterMarketingProject');
+  if(!projSel) return;
+  const projects = new Set();
+  RAW.promotionRecords.forEach(r=> r.project && projects.add(r.project));
+  const sortedProjects = [...projects].sort();
+  projSel.innerHTML = '<option value="">All Projects</option>' + sortedProjects.map(p=>`<option value="${p}">${p}</option>`).join('');
+  if(sortedProjects.includes(marketingFilterState.project)) projSel.value = marketingFilterState.project; else marketingFilterState.project = '';
 }
 function applyFiltersAndRender(){
   const dateFilterActive = !!(filterState.fy || filterState.month);
@@ -2090,6 +2320,20 @@ document.getElementById('filterClear').addEventListener('click', function(){
   document.getElementById('filterMonth').value = '';
   applyFiltersAndRender();
 });
+document.getElementById('filterMarketingProject').addEventListener('change', function(){
+  marketingFilterState.project = this.value;
+  renderMarketingPage();
+});
+document.getElementById('filterMarketingType').addEventListener('change', function(){
+  marketingFilterState.promotionType = this.value;
+  renderMarketingPage();
+});
+document.getElementById('filterMarketingClear').addEventListener('click', function(){
+  marketingFilterState = { project:'', promotionType:'' };
+  document.getElementById('filterMarketingProject').value = '';
+  document.getElementById('filterMarketingType').value = '';
+  renderMarketingPage();
+});
 /* ============ FORMATTING ============ */
 function fmtINRCr(n){
   if(n === null || n === undefined) return '—';
@@ -2122,6 +2366,7 @@ function renderAll(){
   renderBookingPage();
   renderLocationWiseTable();
   renderPropertyWiseTable();
+  renderMarketingPage();
 }
 function grandTotals(){
   return masterData.reduce((acc,m)=>{
@@ -2832,6 +3077,177 @@ function renderBookingPage(){
     totalsLabel:'units'
   });
 }
+/* ============ MARKETING MODULE ============ */
+// Independent of the Sales/CRM Project+FY+Month filter bar — Marketing has its own Project list
+// (many rows are company-wide "Brand Promotion Related" spend with no project at all) and its own
+// Promotion Type filter, tracked in marketingFilterState.
+function renderMarketingPage(){
+  if(!RAW.promotionRecords.length){
+    destroyChart('marketingProject'); destroyChart('marketingActivity');
+    return; // updateSectionVisibility() already shows the "no data" empty state instead of this content
+  }
+  const filtered = RAW.promotionRecords.filter(r =>
+    (!marketingFilterState.project || r.project === marketingFilterState.project) &&
+    (!marketingFilterState.promotionType || r.promotionType === marketingFilterState.promotionType)
+  );
+  const sum = key => filtered.reduce((a,r)=>a+(r[key]||0), 0);
+  const woGrossTotal = sum('woGross');
+  const certTotal = sum('certTotal');
+  const advancePaidTotal = sum('advancePaid');
+  const advanceRecoveredTotal = sum('advanceRecovered');
+  const advanceOutstanding = advancePaidTotal - advanceRecoveredTotal;
+  const paidTotal = sum('paidAmount');
+  const outstandingPayable = sum('yetToBePaid');
+  const availableTotal = sum('availableGross');
+  const tdsTotal = sum('tds');
+  const workOrderCount = new Set(filtered.map(r=>r.promotionNo)).size;
+  document.getElementById('kpiGridMarketing').innerHTML = [
+    {lbl:'Work Orders', val: fmtNum(workOrderCount), sub: `${fmtNum(filtered.length)} promotion line items`},
+    {lbl:'Work Order Value', val: fmtINRCr(woGrossTotal), sub:'Total Promotion Request (WO) value, gross'},
+    {lbl:'Certified Value', val: fmtINRCr(certTotal), sub:'Work certified via Payment Certificate so far'},
+    {lbl:'Advance Paid', val: fmtINRCr(advancePaidTotal), sub: `${fmtINRCr(advanceOutstanding)} not yet adjusted against a certified invoice`},
+    {lbl:'Paid Amount', val: fmtINRCr(paidTotal), sub:'Actually paid out to vendors / agents'},
+    {lbl:'Outstanding Payable', val: fmtINRCr(outstandingPayable), sub: outstandingPayable < 0 ? 'Negative — paid ahead of certified value overall' : 'Certified but not yet paid — the Marketing Outstanding figure'},
+    {lbl:'Available Budget', val: fmtINRCr(availableTotal), sub:'Work Order value not yet certified / utilized'},
+    {lbl:'TDS Deducted', val: fmtINRCr(tdsTotal), sub:'Tax deducted at source'},
+  ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+  const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
+  const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
+  const brick = getComputedStyle(document.documentElement).getPropertyValue('--brick').trim();
+  // Work Order value by project (top 15) — rows with no project ("Brand Promotion Related" company-
+  // wide spend) are grouped under "Brand / Corporate" so they aren't silently dropped from the chart.
+  const byProjectMap = {};
+  filtered.forEach(r=>{
+    const key = r.project || 'Brand / Corporate';
+    byProjectMap[key] = (byProjectMap[key]||0) + r.woGross;
+  });
+  const byProject = Object.entries(byProjectMap).map(([project,value])=>({project,value})).filter(p=>p.value>0).sort((a,b)=>b.value-a.value).slice(0,15);
+  destroyChart('marketingProject');
+  if(byProject.length === 0){
+    chartEmptyMessage('chartMarketingProject', 'No promotion spend matches the current filter.');
+  } else {
+    chartClearEmptyMessage('chartMarketingProject');
+    charts.marketingProject = new Chart(document.getElementById('chartMarketingProject'), {
+      type:'bar',
+      data:{ labels: byProject.map(p=>p.project), datasets:[{ label:'Work Order Value', data: byProject.map(p=>p.value/1e7), backgroundColor: teal }] },
+      options:{
+        indexAxis:'y', responsive:true, maintainAspectRatio:false,
+        scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
+        plugins:{
+          legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
+          datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:11}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
+        }
+      },
+      plugins:[ChartDataLabels]
+    });
+  }
+  // Outstanding payable by promotion activity (top 15)
+  const byActivityMap = {};
+  filtered.forEach(r=>{
+    const key = r.promotionActivity || 'Unspecified';
+    byActivityMap[key] = (byActivityMap[key]||0) + r.yetToBePaid;
+  });
+  const byActivity = Object.entries(byActivityMap).map(([activity,value])=>({activity,value})).filter(a=>a.value>0).sort((a,b)=>b.value-a.value).slice(0,15);
+  destroyChart('marketingActivity');
+  if(byActivity.length === 0){
+    chartEmptyMessage('chartMarketingActivity', 'No outstanding payable matches the current filter.');
+  } else {
+    chartClearEmptyMessage('chartMarketingActivity');
+    charts.marketingActivity = new Chart(document.getElementById('chartMarketingActivity'), {
+      type:'bar',
+      data:{ labels: byActivity.map(a=>a.activity), datasets:[{ label:'Outstanding Payable', data: byActivity.map(a=>a.value/1e7), backgroundColor: brick }] },
+      options:{
+        indexAxis:'y', responsive:true, maintainAspectRatio:false,
+        scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
+        plugins:{
+          legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
+          datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:11}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
+        }
+      },
+      plugins:[ChartDataLabels]
+    });
+  }
+  // ---- Project-wise Marketing Detail ----
+  const projectAgg = {};
+  filtered.forEach(r=>{
+    const key = r.project || 'Brand / Corporate';
+    if(!projectAgg[key]) projectAgg[key] = {workOrders:new Set(), woGross:0, certTotal:0, advancePaid:0, paidAmount:0, outstanding:0, available:0};
+    const a = projectAgg[key];
+    a.workOrders.add(r.promotionNo); a.woGross += r.woGross; a.certTotal += r.certTotal;
+    a.advancePaid += r.advancePaid; a.paidAmount += r.paidAmount; a.outstanding += r.yetToBePaid; a.available += r.availableGross;
+  });
+  const projectRows = Object.entries(projectAgg).map(([project,d])=>({
+    project, workOrders: d.workOrders.size, woGross: d.woGross, certTotal: d.certTotal,
+    advancePaid: d.advancePaid, paidAmount: d.paidAmount, outstanding: d.outstanding, available: d.available,
+  }));
+  renderGenericTable({
+    theadId:'marketingProjectTheadRow', tbodyId:'marketingProjectTbody', tfootId:'marketingProjectTfootRow', searchId:'marketingProjectSearchBox',
+    sortStateKey:'marketingProject',
+    columns:[
+      {key:'project', label:'Project', align:'left'},
+      {key:'workOrders', label:'Work Orders', fmt:fmtNum},
+      {key:'woGross', label:'WO Value', fmt:fmtINRCr},
+      {key:'certTotal', label:'Certified Value', fmt:fmtINRCr},
+      {key:'advancePaid', label:'Advance Paid', fmt:fmtINRCr},
+      {key:'paidAmount', label:'Paid Amount', fmt:fmtINRCr},
+      {key:'outstanding', label:'Outstanding Payable', fmt:fmtINRCr},
+      {key:'available', label:'Available Budget', fmt:fmtINRCr},
+    ],
+    rowsSource: projectRows,
+    defaultSort:{key:'woGross', dir:-1},
+    totalsLabel:'projects'
+  });
+  // ---- Vendor-wise Marketing Detail ----
+  const vendorAgg = {};
+  filtered.forEach(r=>{
+    const key = r.agent || 'Unspecified';
+    if(!vendorAgg[key]) vendorAgg[key] = {workOrders:new Set(), woGross:0, certTotal:0, paidAmount:0, outstanding:0};
+    const a = vendorAgg[key];
+    a.workOrders.add(r.promotionNo); a.woGross += r.woGross; a.certTotal += r.certTotal;
+    a.paidAmount += r.paidAmount; a.outstanding += r.yetToBePaid;
+  });
+  const vendorRows = Object.entries(vendorAgg).map(([agent,d])=>({
+    agent, workOrders: d.workOrders.size, woGross: d.woGross, certTotal: d.certTotal, paidAmount: d.paidAmount, outstanding: d.outstanding,
+  }));
+  renderGenericTable({
+    theadId:'marketingVendorTheadRow', tbodyId:'marketingVendorTbody', tfootId:'marketingVendorTfootRow', searchId:'marketingVendorSearchBox',
+    searchFields:['agent'],
+    sortStateKey:'marketingVendor',
+    columns:[
+      {key:'agent', label:'Agent / Vendor', align:'left'},
+      {key:'workOrders', label:'Work Orders', fmt:fmtNum},
+      {key:'woGross', label:'WO Value', fmt:fmtINRCr},
+      {key:'certTotal', label:'Certified Value', fmt:fmtINRCr},
+      {key:'paidAmount', label:'Paid Amount', fmt:fmtINRCr},
+      {key:'outstanding', label:'Outstanding Payable', fmt:fmtINRCr},
+    ],
+    rowsSource: vendorRows,
+    defaultSort:{key:'outstanding', dir:-1},
+    totalsLabel:'vendors'
+  });
+  // ---- Unit-wise (row-level) Promotion Detail ----
+  renderGenericTable({
+    theadId:'marketingTheadRow', tbodyId:'marketingTbody', tfootId:'marketingTfootRow', searchId:'marketingSearchBox',
+    searchFields:['project','promotionActivity','agent','promotionNo'],
+    sortStateKey:'marketingDetail',
+    columns:[
+      {key:'project', label:'Project', align:'left', noSum:true},
+      {key:'promotionType', label:'Type', align:'left', noSum:true},
+      {key:'promotionActivity', label:'Activity', align:'left', noSum:true},
+      {key:'promotionNo', label:'Promotion No', align:'left', noSum:true},
+      {key:'agent', label:'Agent / Vendor', align:'left', noSum:true},
+      {key:'requestDate', label:'Request Date', align:'left', noSum:true},
+      {key:'woGross', label:'WO Value', fmt:fmtINRCr},
+      {key:'certTotal', label:'Certified Value', fmt:fmtINRCr},
+      {key:'advancePaid', label:'Advance Paid', fmt:fmtINRCr},
+      {key:'paidAmount', label:'Paid Amount', fmt:fmtINRCr},
+      {key:'outstanding', label:'Outstanding Payable', fmt:fmtINRCr},
+    ],
+    rowsSource: filtered.map(r=>({...r, project: r.project || 'Brand / Corporate', outstanding: r.yetToBePaid})),
+    defaultSort:{key:'outstanding', dir:-1},
+    totalsLabel:'promotion line items'
+  });
+}
 /* ============ UNSOLD: LOCATION WISE & PROPERTY WISE (within Sales > Available) ============ */
 function renderLocationWiseTable(){
   const tbody = document.getElementById('locationWiseTbody');
@@ -3111,6 +3527,21 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
       'Outstanding (₹)': outstandingByProjectExp[project] !== undefined ? outstandingByProjectExp[project] : null,
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(crmExport), 'CRM Project Summary');
+  }
+  // 10. Marketing — Promotion Payment Detail (every Work Order line item, unfiltered)
+  if(RAW.promotionRecords.length){
+    const marketingExport = RAW.promotionRecords.map(r=>({
+      'Company': r.company, 'Project': r.project || 'Brand / Corporate', 'Promotion Type': r.promotionType,
+      'Promotion Activity': r.promotionActivity, 'Promotion No': r.promotionNo, 'Agent / Vendor': r.agent,
+      'Request Date': r.requestDate, 'Budget Start': r.budgetStart, 'Budget End': r.budgetEnd,
+      'WO Basic (₹)': r.woBasic, 'WO Tax (₹)': r.woTax, 'WO Gross (₹)': r.woGross,
+      'Certificate Base (₹)': r.certBase, 'Certificate Tax (₹)': r.certTax, 'Certificate Total (₹)': r.certTotal,
+      'TDS (₹)': r.tds, 'Advance Paid (₹)': r.advancePaid, 'Advance Recovered (₹)': r.advanceRecovered,
+      'Debit Note Recovery (₹)': r.debitNoteRecovery, 'Amount Payable (₹)': r.amountPayable, 'Paid Amount (₹)': r.paidAmount,
+      'Outstanding Payable (₹)': r.yetToBePaid, 'Available WO Basic (₹)': r.availableBasic,
+      'Available WO Tax (₹)': r.availableTax, 'Available WO Gross (₹)': r.availableGross,
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(marketingExport), 'Marketing');
   }
   XLSX.writeFile(wb, 'MP_Developers_All_Data_' + new Date().toISOString().slice(0,10) + '.xlsx');
 });
