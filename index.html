@@ -430,9 +430,9 @@
         <input type="file" id="file7" accept=".xlsx">
       </label>
       <label class="drop" id="drop8">
-        <div class="label">8 &middot; Marketing Payment Summary Report <span style="text-transform:none;font-weight:400;">(optional)</span></div>
+        <div class="label">8 &middot; Sales Promotion Payment Report <span style="text-transform:none;font-weight:400;">(optional)</span></div>
         <div class="fname" id="fname8">Click to choose file (.xlsx)</div>
-        <div class="hint">Adds the Marketing module — promotion work orders, certified value, advances, payments &amp; outstanding</div>
+        <div class="hint">Adds the Marketing module — promotion advances, recoveries, net/paid amounts &amp; outstanding</div>
         <input type="file" id="file8" accept=".xlsx">
       </label>
     </div>
@@ -676,7 +676,7 @@
       <div class="section-title group"><h2>Marketing</h2><div class="line"></div></div>
       <div class="empty-state" id="marketingEmptyState">
         <h2>No Marketing data yet</h2>
-        <p>Upload the Marketing Payment Summary Report (file 8 on the upload panel) and publish to see the Marketing dashboard here.</p>
+        <p>Upload the Sales Promotion Payment Report (file 8 on the upload panel) and publish to see the Marketing dashboard here.</p>
       </div>
       <div id="marketingContent" style="display:none;">
       <div class="filter-bar">
@@ -684,22 +684,17 @@
           <label for="filterMarketingProject">Project</label>
           <select id="filterMarketingProject"><option value="">All Projects</option></select>
         </div>
-        <div class="filter-field">
-          <label for="filterMarketingType">Promotion Type</label>
-          <select id="filterMarketingType">
-            <option value="">All Types</option>
-            <option value="Project Related">Project Related</option>
-            <option value="Brand Promotion Related">Brand Promotion Related</option>
-          </select>
-        </div>
         <button class="btn btn-ghost" id="filterMarketingClear">Clear filters</button>
       </div>
       <div class="section-title group"><h2>All Key Metrics</h2><div class="line"></div></div>
       <div class="kpi-grid" id="kpiGridMarketing"></div>
-      <div class="section-title"><h2>Promotion Value by Project &amp; Activity</h2><div class="line"></div></div>
+      <div class="section-title"><h2>Promotion Payments by Project &amp; Activity</h2><div class="line"></div></div>
       <div class="chart-grid">
-        <div class="chart-card"><h3>Work order value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingProject"></canvas></div></div>
-        <div class="chart-card"><h3>Outstanding payable by promotion activity (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingActivity"></canvas></div></div>
+        <div class="chart-card"><h3>Net amount by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingProject"></canvas></div></div>
+        <div class="chart-card"><h3>Outstanding amount by activity (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingActivity"></canvas></div></div>
+      </div>
+      <div class="chart-grid one" style="margin-top:18px;">
+        <div class="chart-card"><h3>Promotion payments by financial year (₹ Cr, by processed date)</h3><div class="wrap tall"><canvas id="chartMarketingFY"></canvas></div></div>
       </div>
       <div class="section-title"><h2>Project-wise Marketing Detail</h2><div class="line"></div></div>
       <div class="table-toolbar">
@@ -727,9 +722,9 @@
           </table>
         </div>
       </div>
-      <div class="section-title"><h2>Unit-wise Promotion Detail</h2><div class="line"></div></div>
+      <div class="section-title"><h2>Payment-wise Promotion Detail</h2><div class="line"></div></div>
       <div class="table-toolbar">
-        <input type="text" id="marketingSearchBox" placeholder="Search project, activity, agent or promotion no...">
+        <input type="text" id="marketingSearchBox" placeholder="Search project, activity, agent or certificate no...">
       </div>
       <div class="table-card">
         <div class="table-scroll">
@@ -1002,7 +997,7 @@ async function tryLoadPublishedData(){
     updateSectionVisibility();
     lastPublished = { at: meta.generatedAt, files: meta.sourceFiles || [] };
     filterState = { project:'', fy:'', month:'' };
-    marketingFilterState = { project: '', promotionType: '' };
+    marketingFilterState = { project: '' };
     populateFilterOptions();
     populateMarketingFilterOptions();
     applyFiltersAndRender();
@@ -1257,11 +1252,11 @@ let RAW = {
   bookingRecords: [],          // Booking Report: project, bookingDate, value
   outstandingRecords: [],      // Debtor Ageing Report (Summary): project, unit, totalCost, dueAsOnDay, totalReceived, netDue, netReceivable (no dates — snapshot as-on-date)
   cancellationRecords: [],     // Customer Cancellation Report: project, bookingDate, unitValue, cancellationDate, reason
-  promotionRecords: [],        // Marketing Payment Summary Report: project, promotion type/activity/no, agent,
-                                // request date, WO/certificate/advance/payment/outstanding amounts — see Marketing module
+  promotionRecords: [],        // Sales Promotion Payment Report: project, agent, request id, activity description,
+                                // certificate/cheque no, advance/recovered/TDS/net/paid/outstanding amounts — see Marketing module
 };
 let filterState = { project: '', fy: '', month: '' };
-let marketingFilterState = { project: '', promotionType: '' };
+let marketingFilterState = { project: '' };
 // Derived / currently-displayed data — render functions read these exactly as before.
 let masterData = [];
 let fyData = [];
@@ -1362,13 +1357,13 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
     }
     if(file8Data){
       const wb8 = await readFileAsWB(file8Data);
-      RAW.promotionRecords = parsePromotionPaymentsReport(wb8);
+      RAW.promotionRecords = parsePromotionPaymentReport(wb8);
     } else {
       RAW.promotionRecords = [];
     }
     updateSectionVisibility();
     filterState = { project: '', fy: '', month: '' };
-    marketingFilterState = { project: '', promotionType: '' };
+    marketingFilterState = { project: '' };
     populateFilterOptions();
     populateMarketingFilterOptions();
     applyFiltersAndRender();
@@ -1725,6 +1720,19 @@ function aggregateCollectionFY(records){
   });
   return Object.entries(fyMap).map(([label,d])=>({label, value:d.value, sortKey:d.sortKey})).sort((a,b)=>a.sortKey-b.sortKey);
 }
+// Marketing promotion payments by financial year — grouped by the report's own Processed Date.
+// Records with no parseable Processed Date (rare, blank cells) are simply excluded from this trend.
+function aggregateMarketingFY(records){
+  const fyMap = {};
+  records.forEach(rec=>{
+    const fy = financialYearOf(rec.processedDate);
+    if(!fy) return;
+    if(!fyMap[fy.label]) fyMap[fy.label] = {netAmount:0, paidAmount:0, sortKey:fy.sortKey};
+    fyMap[fy.label].netAmount += rec.netAmount;
+    fyMap[fy.label].paidAmount += rec.paidAmount;
+  });
+  return Object.entries(fyMap).map(([label,d])=>({label, netAmount:d.netAmount, paidAmount:d.paidAmount, sortKey:d.sortKey})).sort((a,b)=>a.sortKey-b.sortKey);
+}
 function buildCollectionSummary(records){
   const projectTotals = {};
   let allTimeCollected = 0;
@@ -1945,64 +1953,68 @@ function parseCancellationReport(wb){
 // certified so far) -> Advances/Payments against that certified value, with any advance later
 // adjusted (recovered) against a certified invoice. "Available Amount (WO)" is what's left of the
 // Work Order that hasn't been certified yet (WO Gross − Certificate Total), i.e. unutilized budget.
-function parsePromotionPaymentsReport(wb){
+function parsePromotionPaymentReport(wb){
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = sheetToRows(ws);
-  let headerIdx = rows.findIndex(r => normalizeHeader(r[0]) === 'S.No' && r.some(c => normalizeHeader(c) === 'Promotion No.'));
-  if(headerIdx < 0) headerIdx = 5;
+  let headerIdx = rows.findIndex(r => normalizeHeader(r[0]) === 'Company' && r.some(c => normalizeHeader(c) === 'Request Id'));
+  if(headerIdx < 0) headerIdx = 7;
   const headerRow = rows[headerIdx] || [];
   const col = {};
   headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
   const at = (label, fallback) => col[label] !== undefined ? col[label] : fallback;
-  const companyIdx = at('Company Name', 1);
-  const projectIdx = at('Project Name', 2);
-  const promoTypeIdx = at('Promotion Type', 3);
-  const promoActivityIdx = at('Promotion Activity', 4);
-  const promoNoIdx = at('Promotion No.', 5);
-  const requestDateIdx = at('Promotion Request Date', 7);
-  const budgetStartIdx = at('Budget Start Date', 8);
-  const budgetEndIdx = at('Budget End Date', 9);
-  const agentIdx = at('Agent Name', 10);
-  const woBasicIdx = at('Promotion Request (WO) Basic Amount', 11);
-  const woTaxIdx = at('Payment Request (WO) Tax Amount', 12);
-  const woGrossIdx = at('Promotion Request (WO) Gross Amount', 14);
-  const certBaseIdx = at('Promotion Payment Certificate Base Amount', 15);
-  const certTaxIdx = at('Promotion Payment Certificate Tax Amount', 16);
-  const certTotalIdx = at('Promotion Payment Certificate Total', 17);
-  const tdsIdx = at('TDS Deduction', 18);
-  const advancePaidIdx = at('Advance Paid', 19);
-  const advanceRecoveredIdx = at('Advance Recovered', 20);
-  const debitNoteIdx = at('Debit Note Recovery', 21);
-  const payableIdx = at('Amount Payable', 22);
-  const paidIdx = at('Paid Amount', 23);
-  const yetToBePaidIdx = at('Amount yet to be paid from certified value', 24);
-  const availBasicIdx = at('Available Amount (WO) Basic Amount', 25);
-  const availTaxIdx = at('Available Amount (WO) Tax Amount', 26);
-  const availGrossIdx = at('Available Amount (WO) Gross Amount', 27);
+  const companyIdx = at('Company', 0);
+  const projectIdx = at('Project', 3);
+  const agentIdx = at('Agent', 4);
+  const requestIdIdx = at('Request Id', 5);
+  const activityIdx = at('Activity Description', 6);
+  const certificateNoIdx = at('Certificate No.', 7);
+  const chequeNoIdx = at('Cheque No.', 8);
+  const advanceAmountIdx = at('Advance Amount', 9);
+  const advanceRecoveredIdx = at('Advance Recovered', 10);
+  const processedDateIdx = at('Processed Date', 11);
+  const tdsIdx = at('TDS', 13);
+  const surchargeIdx = at('Surcharge', 14);
+  const netAmountIdx = at('Net Amount', 21);
+  const paidAmountIdx = at('Paid Amount', 22);
+  const outstandingIdx = at('Amount Outstanding', 23);
   const num = v => typeof v === 'number' ? v : (v ? (Number(String(v).replace(/[^0-9.-]/g,'')) || 0) : 0);
   const records = [];
   for(let i=headerIdx+1; i<rows.length; i++){
     const r = rows[i];
     if(!r) continue;
-    const sno = r[0];
-    // The Grand Total row has a blank S.No — same subtotal-row guard used by every other report here.
-    if(typeof sno !== 'number') continue;
+    const requestId = r[requestIdIdx];
+    // The Grand Total row (and a trailing blank row) have no Request Id — same subtotal-row guard used by every other report here.
+    if(typeof requestId !== 'number') continue;
     const rawProject = r[projectIdx];
     records.push({
-      sno, company: r[companyIdx] || '',
-      project: rawProject ? normalizeProjectName(rawProject) : '', // blank = company-wide "Brand Promotion Related" spend, not tied to a project
-      promotionType: r[promoTypeIdx] || '', promotionActivity: r[promoActivityIdx] || '',
-      promotionNo: r[promoNoIdx] || '', requestDate: r[requestDateIdx] || '',
-      budgetStart: r[budgetStartIdx] || '', budgetEnd: r[budgetEndIdx] || '', agent: r[agentIdx] || '',
-      woBasic: num(r[woBasicIdx]), woTax: num(r[woTaxIdx]), woGross: num(r[woGrossIdx]),
-      certBase: num(r[certBaseIdx]), certTax: num(r[certTaxIdx]), certTotal: num(r[certTotalIdx]),
-      tds: num(r[tdsIdx]), advancePaid: num(r[advancePaidIdx]), advanceRecovered: num(r[advanceRecoveredIdx]),
-      debitNoteRecovery: num(r[debitNoteIdx]), amountPayable: num(r[payableIdx]), paidAmount: num(r[paidIdx]),
-      yetToBePaid: num(r[yetToBePaidIdx]), availableBasic: num(r[availBasicIdx]), availableTax: num(r[availTaxIdx]),
-      availableGross: num(r[availGrossIdx]),
+      company: r[companyIdx] || '',
+      project: rawProject ? normalizeProjectName(rawProject) : '', // blank = company-wide "Brand / Corporate" spend, not tied to a project
+      agent: r[agentIdx] || '', requestId, activityDescription: r[activityIdx] || '',
+      certificateNo: r[certificateNoIdx] || '', chequeNo: r[chequeNoIdx] || '',
+      // Advance Amount is a Request-level (WO-level) field — the ERP export repeats the SAME value on
+      // every certificate/payment row that shares a Request Id, so it must be de-duplicated by Request Id
+      // before summing (see uniqueAdvanceSum below), or totals inflate by ~10x. Verified against the
+      // report's own Grand Total row. Every other monetary column here is a genuine per-row value and
+      // sums directly.
+      advanceAmount: num(r[advanceAmountIdx]), advanceRecovered: num(r[advanceRecoveredIdx]),
+      processedDate: r[processedDateIdx] || '',
+      tds: num(r[tdsIdx]), surcharge: num(r[surchargeIdx]),
+      netAmount: num(r[netAmountIdx]), paidAmount: num(r[paidAmountIdx]), amountOutstanding: num(r[outstandingIdx]),
     });
   }
   return records;
+}
+// Advance Amount repeats per Request Id (see parser comment above) — sum it once per unique Request Id
+// within the given record set, never per row.
+function uniqueAdvanceSum(records){
+  const seen = new Set();
+  let total = 0;
+  records.forEach(r=>{
+    if(seen.has(r.requestId)) return;
+    seen.add(r.requestId);
+    total += r.advanceAmount;
+  });
+  return total;
 }
 function buildMasterTable(discount, stock, value){
   const allProjects = new Set([...Object.keys(stock), ...Object.keys(value), ...Object.keys(discount)]);
@@ -2326,14 +2338,9 @@ document.getElementById('filterMarketingProject').addEventListener('change', fun
   marketingFilterState.project = this.value;
   renderMarketingPage();
 });
-document.getElementById('filterMarketingType').addEventListener('change', function(){
-  marketingFilterState.promotionType = this.value;
-  renderMarketingPage();
-});
 document.getElementById('filterMarketingClear').addEventListener('click', function(){
-  marketingFilterState = { project:'', promotionType:'' };
+  marketingFilterState = { project:'' };
   document.getElementById('filterMarketingProject').value = '';
-  document.getElementById('filterMarketingType').value = '';
   renderMarketingPage();
 });
 /* ============ FORMATTING ============ */
@@ -3081,47 +3088,46 @@ function renderBookingPage(){
 }
 /* ============ MARKETING MODULE ============ */
 // Independent of the Sales/CRM Project+FY+Month filter bar — Marketing has its own Project list
-// (many rows are company-wide "Brand Promotion Related" spend with no project at all) and its own
-// Promotion Type filter, tracked in marketingFilterState.
+// (many rows are company-wide "Brand / Corporate" spend with no project at all) and its own
+// Project filter, tracked in marketingFilterState.
 function renderMarketingPage(){
   if(!RAW.promotionRecords.length){
-    destroyChart('marketingProject'); destroyChart('marketingActivity');
+    destroyChart('marketingProject'); destroyChart('marketingActivity'); destroyChart('marketingFY');
     return; // updateSectionVisibility() already shows the "no data" empty state instead of this content
   }
   const filtered = RAW.promotionRecords.filter(r =>
-    (!marketingFilterState.project || r.project === marketingFilterState.project) &&
-    (!marketingFilterState.promotionType || r.promotionType === marketingFilterState.promotionType)
+    (!marketingFilterState.project || r.project === marketingFilterState.project)
   );
   const sum = key => filtered.reduce((a,r)=>a+(r[key]||0), 0);
-  const woGrossTotal = sum('woGross');
-  const certTotal = sum('certTotal');
-  const advancePaidTotal = sum('advancePaid');
+  // Advance Amount repeats per Request Id — always de-duplicate via uniqueAdvanceSum, never sum() it directly.
+  const advancePaidTotal = uniqueAdvanceSum(filtered);
   const advanceRecoveredTotal = sum('advanceRecovered');
   const advanceOutstanding = advancePaidTotal - advanceRecoveredTotal;
+  const netAmountTotal = sum('netAmount');
   const paidTotal = sum('paidAmount');
-  const outstandingPayable = sum('yetToBePaid');
-  const availableTotal = sum('availableGross');
+  const outstandingTotal = sum('amountOutstanding');
   const tdsTotal = sum('tds');
-  const workOrderCount = new Set(filtered.map(r=>r.promotionNo)).size;
+  const requestCount = new Set(filtered.map(r=>r.requestId)).size;
   document.getElementById('kpiGridMarketing').innerHTML = [
-    {lbl:'Work Orders', val: fmtNum(workOrderCount), sub: `${fmtNum(filtered.length)} promotion line items`},
-    {lbl:'Work Order Value', val: fmtINRCr(woGrossTotal), sub:'Total Promotion Request (WO) value, gross'},
-    {lbl:'Certified Value', val: fmtINRCr(certTotal), sub:'Work certified via Payment Certificate so far'},
-    {lbl:'Advance Paid', val: fmtINRCr(advancePaidTotal), sub: `${fmtINRCr(advanceOutstanding)} not yet adjusted against a certified invoice`},
+    {lbl:'Promotion Requests', val: fmtNum(requestCount), sub: `${fmtNum(filtered.length)} certificate / payment line items`},
+    {lbl:'Advance Paid', val: fmtINRCr(advancePaidTotal), sub:'Total advance released against requests'},
+    {lbl:'Advance Recovered', val: fmtINRCr(advanceRecoveredTotal), sub: `${fmtINRCr(advanceOutstanding)} advance not yet recovered`},
+    {lbl:'Net Amount', val: fmtINRCr(netAmountTotal), sub:'Total certified / invoice value processed'},
     {lbl:'Paid Amount', val: fmtINRCr(paidTotal), sub:'Actually paid out to vendors / agents'},
-    {lbl:'Outstanding Payable', val: fmtINRCr(outstandingPayable), sub: outstandingPayable < 0 ? 'Negative — paid ahead of certified value overall' : 'Certified but not yet paid — the Marketing Outstanding figure'},
-    {lbl:'Available Budget', val: fmtINRCr(availableTotal), sub:'Work Order value not yet certified / utilized'},
+    {lbl:'Outstanding Amount', val: fmtINRCr(outstandingTotal), sub: outstandingTotal < 0 ? 'Negative — paid ahead of net amount overall' : 'Net amount certified but not yet paid'},
     {lbl:'TDS Deducted', val: fmtINRCr(tdsTotal), sub:'Tax deducted at source'},
+    {lbl:'Surcharge', val: fmtINRCr(sum('surcharge')), sub:'Surcharge deducted on promotion payments'},
   ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
   const brick = getComputedStyle(document.documentElement).getPropertyValue('--brick').trim();
-  // Work Order value by project (top 15) — rows with no project ("Brand Promotion Related" company-
-  // wide spend) are grouped under "Brand / Corporate" so they aren't silently dropped from the chart.
+  const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
+  // Net amount by project (top 15) — rows with no project ("Brand / Corporate" company-wide spend)
+  // are grouped under "Brand / Corporate" so they aren't silently dropped from the chart.
   const byProjectMap = {};
   filtered.forEach(r=>{
     const key = r.project || 'Brand / Corporate';
-    byProjectMap[key] = (byProjectMap[key]||0) + r.woGross;
+    byProjectMap[key] = (byProjectMap[key]||0) + r.netAmount;
   });
   const byProject = Object.entries(byProjectMap).map(([project,value])=>({project,value})).filter(p=>p.value>0).sort((a,b)=>b.value-a.value).slice(0,15);
   destroyChart('marketingProject');
@@ -3131,7 +3137,7 @@ function renderMarketingPage(){
     chartClearEmptyMessage('chartMarketingProject');
     charts.marketingProject = new Chart(document.getElementById('chartMarketingProject'), {
       type:'bar',
-      data:{ labels: byProject.map(p=>p.project), datasets:[{ label:'Work Order Value', data: byProject.map(p=>p.value/1e7), backgroundColor: teal }] },
+      data:{ labels: byProject.map(p=>p.project), datasets:[{ label:'Net Amount', data: byProject.map(p=>p.value/1e7), backgroundColor: teal }] },
       options:{
         indexAxis:'y', responsive:true, maintainAspectRatio:false,
         scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
@@ -3143,21 +3149,21 @@ function renderMarketingPage(){
       plugins:[ChartDataLabels]
     });
   }
-  // Outstanding payable by promotion activity (top 15)
+  // Outstanding amount by activity description (top 15)
   const byActivityMap = {};
   filtered.forEach(r=>{
-    const key = r.promotionActivity || 'Unspecified';
-    byActivityMap[key] = (byActivityMap[key]||0) + r.yetToBePaid;
+    const key = r.activityDescription || 'Unspecified';
+    byActivityMap[key] = (byActivityMap[key]||0) + r.amountOutstanding;
   });
   const byActivity = Object.entries(byActivityMap).map(([activity,value])=>({activity,value})).filter(a=>a.value>0).sort((a,b)=>b.value-a.value).slice(0,15);
   destroyChart('marketingActivity');
   if(byActivity.length === 0){
-    chartEmptyMessage('chartMarketingActivity', 'No outstanding payable matches the current filter.');
+    chartEmptyMessage('chartMarketingActivity', 'No outstanding amount matches the current filter.');
   } else {
     chartClearEmptyMessage('chartMarketingActivity');
     charts.marketingActivity = new Chart(document.getElementById('chartMarketingActivity'), {
       type:'bar',
-      data:{ labels: byActivity.map(a=>a.activity), datasets:[{ label:'Outstanding Payable', data: byActivity.map(a=>a.value/1e7), backgroundColor: brick }] },
+      data:{ labels: byActivity.map(a=>a.activity), datasets:[{ label:'Outstanding Amount', data: byActivity.map(a=>a.value/1e7), backgroundColor: brick }] },
       options:{
         indexAxis:'y', responsive:true, maintainAspectRatio:false,
         scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
@@ -3169,47 +3175,74 @@ function renderMarketingPage(){
       plugins:[ChartDataLabels]
     });
   }
-  // ---- Project-wise Marketing Detail ----
+  // Promotion payments by financial year (Net Amount vs Paid Amount, grouped by the report's Processed Date)
+  const marketingFYData = aggregateMarketingFY(filtered);
+  destroyChart('marketingFY');
+  if(marketingFYData.length === 0){
+    chartEmptyMessage('chartMarketingFY', 'No promotion payments with a usable processed date match the current filter.');
+  } else {
+    chartClearEmptyMessage('chartMarketingFY');
+    charts.marketingFY = new Chart(document.getElementById('chartMarketingFY'), {
+      type:'bar',
+      data:{
+        labels: marketingFYData.map(f=>f.label),
+        datasets:[
+          {label:'Net Amount', data: marketingFYData.map(f=>f.netAmount/1e7), backgroundColor: teal},
+          {label:'Paid Amount', data: marketingFYData.map(f=>f.paidAmount/1e7), backgroundColor: gold},
+        ]
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        scales:{ x:{ grid:{display:false} }, y:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} } },
+        plugins:{
+          legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}},
+          tooltip:{callbacks:{label: ctx=> ctx.dataset.label+': ₹'+ctx.raw.toFixed(2)+' Cr'}}
+        }
+      }
+    });
+  }
+  // ---- Project-wise Marketing Detail ---- (Advance Paid de-duplicated by Request Id within each project;
+  // safe because Project is constant across every row sharing a Request Id, verified against source data)
   const projectAgg = {};
   filtered.forEach(r=>{
     const key = r.project || 'Brand / Corporate';
-    if(!projectAgg[key]) projectAgg[key] = {workOrders:new Set(), woGross:0, certTotal:0, advancePaid:0, paidAmount:0, outstanding:0, available:0};
+    if(!projectAgg[key]) projectAgg[key] = {requestIds:new Set(), advancePaid:0, advanceRecovered:0, netAmount:0, paidAmount:0, outstanding:0};
     const a = projectAgg[key];
-    a.workOrders.add(r.promotionNo); a.woGross += r.woGross; a.certTotal += r.certTotal;
-    a.advancePaid += r.advancePaid; a.paidAmount += r.paidAmount; a.outstanding += r.yetToBePaid; a.available += r.availableGross;
+    if(!a.requestIds.has(r.requestId)){ a.requestIds.add(r.requestId); a.advancePaid += r.advanceAmount; }
+    a.advanceRecovered += r.advanceRecovered; a.netAmount += r.netAmount; a.paidAmount += r.paidAmount; a.outstanding += r.amountOutstanding;
   });
   const projectRows = Object.entries(projectAgg).map(([project,d])=>({
-    project, workOrders: d.workOrders.size, woGross: d.woGross, certTotal: d.certTotal,
-    advancePaid: d.advancePaid, paidAmount: d.paidAmount, outstanding: d.outstanding, available: d.available,
+    project, requests: d.requestIds.size, advancePaid: d.advancePaid, advanceRecovered: d.advanceRecovered,
+    netAmount: d.netAmount, paidAmount: d.paidAmount, outstanding: d.outstanding,
   }));
   renderGenericTable({
     theadId:'marketingProjectTheadRow', tbodyId:'marketingProjectTbody', tfootId:'marketingProjectTfootRow', searchId:'marketingProjectSearchBox',
     sortStateKey:'marketingProject',
     columns:[
       {key:'project', label:'Project', align:'left'},
-      {key:'workOrders', label:'Work Orders', fmt:fmtNum},
-      {key:'woGross', label:'WO Value', fmt:fmtINRCr},
-      {key:'certTotal', label:'Certified Value', fmt:fmtINRCr},
+      {key:'requests', label:'Requests', fmt:fmtNum},
       {key:'advancePaid', label:'Advance Paid', fmt:fmtINRCr},
+      {key:'advanceRecovered', label:'Advance Recovered', fmt:fmtINRCr},
+      {key:'netAmount', label:'Net Amount', fmt:fmtINRCr},
       {key:'paidAmount', label:'Paid Amount', fmt:fmtINRCr},
-      {key:'outstanding', label:'Outstanding Payable', fmt:fmtINRCr},
-      {key:'available', label:'Available Budget', fmt:fmtINRCr},
+      {key:'outstanding', label:'Outstanding Amount', fmt:fmtINRCr},
     ],
     rowsSource: projectRows,
-    defaultSort:{key:'woGross', dir:-1},
+    defaultSort:{key:'netAmount', dir:-1},
     totalsLabel:'projects'
   });
-  // ---- Vendor-wise Marketing Detail ----
+  // ---- Vendor-wise Marketing Detail ---- (same Advance Paid de-dup rule, safe for the same reason —
+  // Agent is constant across every row sharing a Request Id)
   const vendorAgg = {};
   filtered.forEach(r=>{
     const key = r.agent || 'Unspecified';
-    if(!vendorAgg[key]) vendorAgg[key] = {workOrders:new Set(), woGross:0, certTotal:0, paidAmount:0, outstanding:0};
+    if(!vendorAgg[key]) vendorAgg[key] = {requestIds:new Set(), advancePaid:0, netAmount:0, paidAmount:0, outstanding:0};
     const a = vendorAgg[key];
-    a.workOrders.add(r.promotionNo); a.woGross += r.woGross; a.certTotal += r.certTotal;
-    a.paidAmount += r.paidAmount; a.outstanding += r.yetToBePaid;
+    if(!a.requestIds.has(r.requestId)){ a.requestIds.add(r.requestId); a.advancePaid += r.advanceAmount; }
+    a.netAmount += r.netAmount; a.paidAmount += r.paidAmount; a.outstanding += r.amountOutstanding;
   });
   const vendorRows = Object.entries(vendorAgg).map(([agent,d])=>({
-    agent, workOrders: d.workOrders.size, woGross: d.woGross, certTotal: d.certTotal, paidAmount: d.paidAmount, outstanding: d.outstanding,
+    agent, requests: d.requestIds.size, advancePaid: d.advancePaid, netAmount: d.netAmount, paidAmount: d.paidAmount, outstanding: d.outstanding,
   }));
   renderGenericTable({
     theadId:'marketingVendorTheadRow', tbodyId:'marketingVendorTbody', tfootId:'marketingVendorTfootRow', searchId:'marketingVendorSearchBox',
@@ -3217,37 +3250,38 @@ function renderMarketingPage(){
     sortStateKey:'marketingVendor',
     columns:[
       {key:'agent', label:'Agent / Vendor', align:'left'},
-      {key:'workOrders', label:'Work Orders', fmt:fmtNum},
-      {key:'woGross', label:'WO Value', fmt:fmtINRCr},
-      {key:'certTotal', label:'Certified Value', fmt:fmtINRCr},
+      {key:'requests', label:'Requests', fmt:fmtNum},
+      {key:'advancePaid', label:'Advance Paid', fmt:fmtINRCr},
+      {key:'netAmount', label:'Net Amount', fmt:fmtINRCr},
       {key:'paidAmount', label:'Paid Amount', fmt:fmtINRCr},
-      {key:'outstanding', label:'Outstanding Payable', fmt:fmtINRCr},
+      {key:'outstanding', label:'Outstanding Amount', fmt:fmtINRCr},
     ],
     rowsSource: vendorRows,
     defaultSort:{key:'outstanding', dir:-1},
     totalsLabel:'vendors'
   });
-  // ---- Unit-wise (row-level) Promotion Detail ----
+  // ---- Payment-wise (row-level) Promotion Detail ----
   renderGenericTable({
     theadId:'marketingTheadRow', tbodyId:'marketingTbody', tfootId:'marketingTfootRow', searchId:'marketingSearchBox',
-    searchFields:['project','promotionActivity','agent','promotionNo'],
+    searchFields:['project','activityDescription','agent','certificateNo'],
     sortStateKey:'marketingDetail',
     columns:[
       {key:'project', label:'Project', align:'left', noSum:true},
-      {key:'promotionType', label:'Type', align:'left', noSum:true},
-      {key:'promotionActivity', label:'Activity', align:'left', noSum:true},
-      {key:'promotionNo', label:'Promotion No', align:'left', noSum:true},
+      {key:'activityDescription', label:'Activity', align:'left', noSum:true},
       {key:'agent', label:'Agent / Vendor', align:'left', noSum:true},
-      {key:'requestDate', label:'Request Date', align:'left', noSum:true},
-      {key:'woGross', label:'WO Value', fmt:fmtINRCr},
-      {key:'certTotal', label:'Certified Value', fmt:fmtINRCr},
-      {key:'advancePaid', label:'Advance Paid', fmt:fmtINRCr},
+      {key:'certificateNo', label:'Certificate No', align:'left', noSum:true},
+      {key:'processedDate', label:'Processed Date', align:'left', noSum:true},
+      // noSum: Advance Amount repeats on every row sharing a Request Id, so a raw per-row column total
+      // here would badly over-count — the correct de-duplicated total is shown in the KPI tile above.
+      {key:'advanceAmount', label:'Advance Amount', fmt:fmtINRCr, noSum:true},
+      {key:'advanceRecovered', label:'Advance Recovered', fmt:fmtINRCr},
+      {key:'netAmount', label:'Net Amount', fmt:fmtINRCr},
       {key:'paidAmount', label:'Paid Amount', fmt:fmtINRCr},
-      {key:'outstanding', label:'Outstanding Payable', fmt:fmtINRCr},
+      {key:'amountOutstanding', label:'Outstanding Amount', fmt:fmtINRCr},
     ],
-    rowsSource: filtered.map(r=>({...r, project: r.project || 'Brand / Corporate', outstanding: r.yetToBePaid})),
-    defaultSort:{key:'outstanding', dir:-1},
-    totalsLabel:'promotion line items'
+    rowsSource: filtered.map(r=>({...r, project: r.project || 'Brand / Corporate'})),
+    defaultSort:{key:'amountOutstanding', dir:-1},
+    totalsLabel:'payment line items'
   });
 }
 /* ============ UNSOLD: LOCATION WISE & PROPERTY WISE (within Sales > Available) ============ */
@@ -3530,18 +3564,17 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(crmExport), 'CRM Project Summary');
   }
-  // 10. Marketing — Promotion Payment Detail (every Work Order line item, unfiltered)
+  // 10. Marketing — Promotion Payment Detail (every certificate/payment line item, unfiltered).
+  // Note: Advance Amount repeats per Request Id in this row-level export, same as in the source report —
+  // de-duplicate by Request Id before summing it, exactly as the dashboard's own KPI tile does.
   if(RAW.promotionRecords.length){
     const marketingExport = RAW.promotionRecords.map(r=>({
-      'Company': r.company, 'Project': r.project || 'Brand / Corporate', 'Promotion Type': r.promotionType,
-      'Promotion Activity': r.promotionActivity, 'Promotion No': r.promotionNo, 'Agent / Vendor': r.agent,
-      'Request Date': r.requestDate, 'Budget Start': r.budgetStart, 'Budget End': r.budgetEnd,
-      'WO Basic (₹)': r.woBasic, 'WO Tax (₹)': r.woTax, 'WO Gross (₹)': r.woGross,
-      'Certificate Base (₹)': r.certBase, 'Certificate Tax (₹)': r.certTax, 'Certificate Total (₹)': r.certTotal,
-      'TDS (₹)': r.tds, 'Advance Paid (₹)': r.advancePaid, 'Advance Recovered (₹)': r.advanceRecovered,
-      'Debit Note Recovery (₹)': r.debitNoteRecovery, 'Amount Payable (₹)': r.amountPayable, 'Paid Amount (₹)': r.paidAmount,
-      'Outstanding Payable (₹)': r.yetToBePaid, 'Available WO Basic (₹)': r.availableBasic,
-      'Available WO Tax (₹)': r.availableTax, 'Available WO Gross (₹)': r.availableGross,
+      'Company': r.company, 'Project': r.project || 'Brand / Corporate', 'Agent / Vendor': r.agent,
+      'Request Id': r.requestId, 'Activity Description': r.activityDescription,
+      'Certificate No': r.certificateNo, 'Cheque No': r.chequeNo, 'Processed Date': r.processedDate,
+      'Advance Amount (₹)': r.advanceAmount, 'Advance Recovered (₹)': r.advanceRecovered,
+      'TDS (₹)': r.tds, 'Surcharge (₹)': r.surcharge,
+      'Net Amount (₹)': r.netAmount, 'Paid Amount (₹)': r.paidAmount, 'Amount Outstanding (₹)': r.amountOutstanding,
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(marketingExport), 'Marketing');
   }
