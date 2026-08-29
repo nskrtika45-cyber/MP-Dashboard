@@ -395,7 +395,7 @@
       <label class="drop" id="drop6">
         <div class="label">6 &middot; Debtor Ageing Report (Summary) <span style="text-transform:none;font-weight:400;">(optional)</span></div>
         <div class="fname" id="fname6">Click to choose file (.xlsx)</div>
-        <div class="hint">Replaces the estimated Outstanding Balance on the CRM tab with the ERP's own Total Outstanding figure, and adds Total Stage Due / Net Due as per Stage</div>
+        <div class="hint">Replaces the estimated Outstanding Balance on the CRM tab with the ERP's own Total Outstanding figure, and adds Net Due as per Stage</div>
         <input type="file" id="file6" accept=".xlsx">
       </label>
       <label class="drop" id="drop7">
@@ -1749,7 +1749,8 @@ function aggregateBookingMonth(records){
 // inventory. Field names on the returned records deliberately match what parseOutstandingReport used
 // to produce (project, subProject, unitNo, customer, status, totalCost, totalReceived, netReceivable,
 // asOnDate) so every existing consumer of RAW.outstandingRecords keeps working unchanged; dueAsOnDay
-// and netDue are new fields added for the "Total Stage Due" / "Net Due as per Stage" KPI tiles.
+// and netDue are new fields — netDue feeds the "Net Due as per Stage" KPI tile, dueAsOnDay is kept on
+// the record and included in the Outstanding sheet export even though no overview tile uses it now.
 function parseDebtorAgeingReport(wb){
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = sheetToRows(ws);
@@ -2635,15 +2636,13 @@ function renderCollectionPage(){
   // "Total Collected" and the project chart DO respect Project + FY + Month, sourced from the dated
   // Sheet1 receipts rather than the dateless Sheet6 unit summary.
   const totalCollected = periodActive ? collectionPeriodTotal : allTimeCollected;
-  // Total Stage Due / Net Due as per Stage — from the Debtor Ageing Report's own DueAsonDay and NetDue
-  // columns. Both only exist once that report is uploaded (the estimated fallback below has no
-  // per-unit stage-due figures at all), so they read as 0 with a prompt to upload it otherwise.
-  const totalStageDue = hasOutstandingReport ? outstandingData.reduce((a,r)=>a+(r.dueAsOnDay||0),0) : 0;
+  // Net Due as per Stage — from the Debtor Ageing Report's own NetDue column. Only exists once that
+  // report is uploaded (the estimated fallback below has no per-unit stage-due figures at all), so it
+  // reads as 0 with a prompt to upload it otherwise.
   const netDueAsPerStage = hasOutstandingReport ? outstandingData.reduce((a,r)=>a+(r.netDue||0),0) : 0;
   const debtorAgeingSub = hasOutstandingReport ? 'From Debtor Ageing Report (Summary)' : 'Upload Debtor Ageing Report (Summary)';
   document.getElementById('kpiGridCollection').innerHTML = [
     {lbl:'Total Collected', val: fmtINRCr(totalCollected), sub: periodActive ? 'Received in the selected period' : `${fmtNum(unitsRecorded)} units with collection recorded`},
-    {lbl:'Total Stage Due', val: fmtINRCr(totalStageDue), sub: debtorAgeingSub},
     {lbl:'Net Due as per Stage', val: fmtINRCr(netDueAsPerStage), sub: debtorAgeingSub},
     {lbl:'Outstanding Balance', val: fmtINRCr(outstandingTotal), sub: outstandingSub},
   ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
