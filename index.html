@@ -511,32 +511,7 @@
         <div class="chart-card"><h3>Sales value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartSoldValue"></canvas></div></div>
         <div class="chart-card"><h3>Sales value by financial year (₹ Cr, by booking date)</h3><div class="wrap tall"><canvas id="chartSoldFY"></canvas></div></div>
       </div>
-      <div class="section-title"><h2>Sales — Project-wise Detail</h2><div class="line"></div></div>
-      <div class="table-toolbar">
-        <input type="text" id="soldSearchBox" placeholder="Search project name...">
-      </div>
-      <div class="table-card">
-        <div class="table-scroll">
-          <table id="soldTable">
-            <thead><tr id="soldTheadRow"></tr></thead>
-            <tbody id="soldTbody"></tbody>
-            <tfoot><tr id="soldTfootRow"></tr></tfoot>
-          </table>
-        </div>
-      </div>
-      <div class="section-title group"><h2>Project-wise Sales &amp; Unsold</h2><div class="line"></div></div>
-      <div class="table-toolbar">
-        <input type="text" id="salesProjectSearchBox" placeholder="Search project name...">
-      </div>
-      <div class="table-card">
-        <div class="table-scroll">
-          <table id="salesProjectTable">
-            <thead><tr id="salesProjectTheadRow"></tr></thead>
-            <tbody id="salesProjectTbody"></tbody>
-            <tfoot><tr id="salesProjectTfootRow"></tr></tfoot>
-          </table>
-        </div>
-      </div>
+      <p class="chart-note" style="margin:4px 2px 18px;">Project-wise Sold/Unsold figures now live in one combined table — see <strong>Project-wise Detail</strong> on the Overview tab.</p>
       <div class="section-title group" id="salesBookingsHeader"><h2>Bookings</h2><div class="line"></div></div>
       <div id="salesBookingsSection">
       <div class="section-title"><h2>Unit-wise Booking Detail</h2><div class="line"></div></div>
@@ -570,19 +545,7 @@
       <div class="chart-grid one" style="margin-top:18px;">
         <div class="chart-card"><h3>Unsold value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartUnsoldProject"></canvas></div></div>
       </div>
-      <div class="section-title"><h2>Unsold — Project-wise Detail</h2><div class="line"></div></div>
-      <div class="table-toolbar">
-        <input type="text" id="availSearchBox" placeholder="Search project name...">
-      </div>
-      <div class="table-card">
-        <div class="table-scroll">
-          <table id="availTable">
-            <thead><tr id="availTheadRow"></tr></thead>
-            <tbody id="availTbody"></tbody>
-            <tfoot><tr id="availTfootRow"></tr></tfoot>
-          </table>
-        </div>
-      </div>
+      <p class="chart-note" style="margin:4px 2px 18px;">Project-wise Unsold figures now live in one combined table — see <strong>Project-wise Detail</strong> on the Overview tab.</p>
       <div class="section-title"><h2>Unsold — Location Wise</h2><div class="line"></div></div>
       <div class="table-card">
         <div class="table-scroll">
@@ -628,19 +591,7 @@
       </div>
       </div>
       <div class="section-title group"><h2>CRM Data</h2><div class="line"></div></div>
-      <div class="section-title"><h2>Project-wise CRM Detail</h2><div class="line"></div></div>
-      <div class="table-toolbar">
-        <input type="text" id="crmProjectSearchBox" placeholder="Search project name...">
-      </div>
-      <div class="table-card">
-        <div class="table-scroll">
-          <table id="crmProjectTable">
-            <thead><tr id="crmProjectTheadRow"></tr></thead>
-            <tbody id="crmProjectTbody"></tbody>
-            <tfoot><tr id="crmProjectTfootRow"></tr></tfoot>
-          </table>
-        </div>
-      </div>
+      <p class="chart-note" style="margin:4px 2px 18px;">Project-wise Agreement/Collection/Outstanding figures now live in one combined table — see <strong>Project-wise Detail</strong> on the Overview tab.</p>
       <div id="crmAgreementData">
       <div class="section-title"><h2>Unit-wise Agreement Detail</h2><div class="line"></div></div>
       <div class="table-toolbar">
@@ -662,19 +613,6 @@
       </div>
       </div>
       <div id="crmCollectionData">
-      <div class="section-title"><h2>Outstanding — Project-wise Detail</h2><div class="line"></div></div>
-      <div class="table-toolbar">
-        <input type="text" id="outstandingSearchBox" placeholder="Search project name...">
-      </div>
-      <div class="table-card">
-        <div class="table-scroll">
-          <table id="outstandingTable">
-            <thead><tr id="outstandingTheadRow"></tr></thead>
-            <tbody id="outstandingTbody"></tbody>
-            <tfoot><tr id="outstandingTfootRow"></tr></tfoot>
-          </table>
-        </div>
-      </div>
       <div class="section-title"><h2>Unit-wise Collection Detail</h2><div class="line"></div></div>
       <div class="table-toolbar">
         <input type="text" id="collectionSearchBox" placeholder="Search project, unit or customer...">
@@ -2065,6 +2003,50 @@ function applyFiltersAndRender(){
   bookingData = filterFull(RAW.bookingRecords, 'bookingDate');
   bookingFYData = aggregateBookingFY(filterProjectOnly(RAW.bookingRecords)); // trend — Project only
   bookingMonthData = aggregateBookingMonth(bookingData);
+  // ---- Merge Agreement / Collection / Outstanding project-level rollups onto the master table ----
+  // so the one "Project-wise Detail" table on the Overview tab covers every project-level metric that
+  // used to be split across separate Sales/Unsold/CRM project tables (all of which were pure subsets
+  // of, or directly derivable from, this same per-project data).
+  const agreementByProjectM = {};
+  agreementData.forEach(r=>{
+    if(!agreementByProjectM[r.project]) agreementByProjectM[r.project] = {units:0, pendingRegn:0};
+    agreementByProjectM[r.project].units += 1;
+    if(r.regnDate === '') agreementByProjectM[r.project].pendingRegn += 1;
+  });
+  const collectedByProjectM = {};
+  collectionData.forEach(r=>{ collectedByProjectM[r.project] = (collectedByProjectM[r.project]||0) + r.total; });
+  const outstandingByProjectM = {}; // from the Debtor Ageing Report: units, Total Cost, Total Received, Outstanding
+  outstandingData.forEach(r=>{
+    if(!outstandingByProjectM[r.project]) outstandingByProjectM[r.project] = {units:0, totalCost:0, totalReceived:0, outstanding:0};
+    const o = outstandingByProjectM[r.project];
+    o.units += 1; o.totalCost += r.totalCost; o.totalReceived += r.totalReceived; o.outstanding += r.netReceivable;
+  });
+  const masterByProjectM = {};
+  masterData.forEach(m=> masterByProjectM[m.project] = m);
+  const crmOnlyProjects = new Set([...Object.keys(agreementByProjectM), ...Object.keys(collectedByProjectM), ...Object.keys(outstandingByProjectM)]);
+  crmOnlyProjects.forEach(project=>{
+    if(!masterByProjectM[project]){
+      // A project with Agreement/Collection/Outstanding activity but no Stock Summary / Customer
+      // Details entry at all (rare) — add its own row so those figures aren't silently dropped.
+      const row = { project, totalUnits:0, soldUnits:0, availUnits:0, blockedUnits:0, totalArea:0, soldArea:0, availArea:0, blockedArea:0,
+        soldValue:0, availValue:0, totalValue:0, avgSoldPrice:null, avgAvailPrice:null,
+        beforeDiscount:null, afterDiscount:null, discountValue:null, discountPct:null, cancelledUnits:0,
+        discountActiveUnits:0, cancelBefore:0, cancelAfter:0, cancelDiscountValue:0 };
+      masterData.push(row);
+      masterByProjectM[project] = row;
+    }
+  });
+  masterData.forEach(m=>{
+    const ag = agreementByProjectM[m.project];
+    const od = outstandingByProjectM[m.project];
+    m.agreementUnits = ag ? ag.units : null;
+    m.pendingRegn = ag ? ag.pendingRegn : null;
+    m.collected = collectedByProjectM[m.project] !== undefined ? collectedByProjectM[m.project] : null;
+    m.totalCost = od ? od.totalCost : null;
+    m.totalReceived = od ? od.totalReceived : null;
+    m.outstandingBalance = od ? od.outstanding : null;
+    m.outstandingPct = (od && od.totalCost) ? (od.outstanding/od.totalCost*100) : null;
+  });
   renderFilterSummary();
   renderAll();
   // Defensive: a chart re-created while its tab is hidden (display:none) can size to 0 and never
@@ -2138,8 +2120,6 @@ function renderAll(){
   renderAgreementPage();
   renderCollectionPage();
   renderBookingPage();
-  renderSalesProjectTable();
-  renderCRMProjectTable();
   renderLocationWiseTable();
   renderPropertyWiseTable();
 }
@@ -2408,20 +2388,6 @@ function renderSoldPage(){
     plugins:[ChartDataLabels]
   });
   }
-  renderGenericTable({
-    theadId:'soldTheadRow', tbodyId:'soldTbody', tfootId:'soldTfootRow', searchId:'soldSearchBox',
-    sortStateKey:'sold',
-    columns:[
-      {key:'project', label:'Project', align:'left'},
-      {key:'soldUnits', label:'Sold Units', fmt:fmtNum},
-      {key:'soldArea', label:'Sold Area (sq.ft)', fmt:fmtNum},
-      {key:'soldValue', label:'Sales Value', fmt:fmtINRCr},
-      {key:'soldRate', label:'Avg Rate (₹/sq.ft)', fmt:(n)=> n===null?'—':'₹'+Math.round(n).toLocaleString('en-IN')},
-    ],
-    rowsSource: masterData.filter(m=>m.soldUnits>0).map(m=>({...m, soldRate: m.soldArea ? m.soldValue/m.soldArea : null})),
-    defaultSort:{key:'soldValue', dir:-1},
-    totalsLabel:'projects with sold units'
-  });
 }
 /* ============ AVAILABLE PAGE ============ */
 function renderAvailablePage(){
@@ -2471,20 +2437,6 @@ function renderAvailablePage(){
     }
   });
   }
-  renderGenericTable({
-    theadId:'availTheadRow', tbodyId:'availTbody', tfootId:'availTfootRow', searchId:'availSearchBox',
-    sortStateKey:'avail',
-    columns:[
-      {key:'project', label:'Project', align:'left'},
-      {key:'availUnits', label:'Unsold Units', fmt:fmtNum},
-      {key:'availArea', label:'Unsold Area (sq.ft)', fmt:fmtNum},
-      {key:'availValue', label:'Unsold Value', fmt:fmtINRCr},
-      {key:'availRate', label:'Avg Rate (₹/sq.ft)', fmt:(n)=> n===null?'—':'₹'+Math.round(n).toLocaleString('en-IN')},
-    ],
-    rowsSource: masterData.filter(m=>m.availUnits>0).map(m=>({...m, availRate: m.availArea ? m.availValue/m.availArea : null})),
-    defaultSort:{key:'availValue', dir:-1},
-    totalsLabel:'projects with unsold units'
-  });
 }
 /* ============ AGREEMENT REGISTER PAGE ============ */
 function renderAgreementPage(){
@@ -2751,34 +2703,6 @@ function renderCollectionPage(){
     }
   });
   }
-  // ---- Outstanding — Project-wise Detail table (only meaningful with the Outstanding report) ----
-  if(hasOutstandingReport){
-    const outstandingRows = Object.entries(projDetailByProject).map(([project,d])=>({
-      project, units:d.units, totalCost:d.totalCost, totalReceived:d.totalReceived, outstanding:d.outstanding,
-      outstandingPct: d.totalCost ? (d.outstanding/d.totalCost*100) : null,
-    }));
-    renderGenericTable({
-      theadId:'outstandingTheadRow', tbodyId:'outstandingTbody', tfootId:'outstandingTfootRow', searchId:'outstandingSearchBox',
-      sortStateKey:'outstandingProject',
-      columns:[
-        {key:'project', label:'Project', align:'left'},
-        {key:'units', label:'Units', fmt:fmtNum},
-        {key:'totalCost', label:'Total Cost', fmt:fmtINRCr},
-        {key:'totalReceived', label:'Total Received', fmt:fmtINRCr},
-        {key:'outstanding', label:'Outstanding', fmt:fmtINRCr},
-        {key:'outstandingPct', label:'Outstanding %', fmt:fmtPct},
-      ],
-      rowsSource: outstandingRows,
-      defaultSort:{key:'outstanding', dir:-1},
-      totalsLabel:'projects'
-    });
-    document.getElementById('outstandingTable').closest('.table-card').style.display = '';
-    document.querySelector('#outstandingSearchBox').closest('.table-toolbar').style.display = '';
-  } else {
-    document.getElementById('outstandingTbody').innerHTML = '';
-    document.getElementById('outstandingTheadRow').innerHTML = '';
-    document.getElementById('outstandingTfootRow').innerHTML = `<td style="padding:14px;color:var(--muted);">Upload the Debtor Ageing Report (Summary) to see project-wise outstanding detail here.</td>`;
-  }
   renderGenericTable({
     theadId:'collectionTheadRow', tbodyId:'collectionTbody', tfootId:'collectionTfootRow', searchId:'collectionSearchBox',
     searchFields:['project','unitNo','customer'],
@@ -2908,64 +2832,6 @@ function renderBookingPage(){
     totalsLabel:'units'
   });
 }
-/* ============ SALES: PROJECT-WISE SOLD & UNSOLD (merged Sales tab) ============ */
-function renderSalesProjectTable(){
-  renderGenericTable({
-    theadId:'salesProjectTheadRow', tbodyId:'salesProjectTbody', tfootId:'salesProjectTfootRow', searchId:'salesProjectSearchBox',
-    sortStateKey:'salesProject',
-    columns:[
-      {key:'project', label:'Project', align:'left'},
-      {key:'soldUnits', label:'Sold Units', fmt:fmtNum},
-      {key:'soldValue', label:'Sales Value', fmt:fmtINRCr},
-      {key:'availUnits', label:'Unsold Units', fmt:fmtNum},
-      {key:'availValue', label:'Unsold Value', fmt:fmtINRCr},
-    ],
-    rowsSource: periodFilterActive() ? masterData.filter(m=>m.soldUnits>0) : masterData,
-    defaultSort:{key:'soldValue', dir:-1},
-    totalsLabel:'projects'
-  });
-}
-/* ============ CRM: PROJECT-WISE DETAIL (merged CRM tab) ============ */
-function renderCRMProjectTable(){
-  // Combines whichever of Agreement Register / Collection / Outstanding have been uploaded, all
-  // rolled up to one row per project so a viewer doesn't have to cross-reference three tables.
-  const agreementByProject = {};
-  agreementData.forEach(r=>{
-    if(!agreementByProject[r.project]) agreementByProject[r.project] = {units:0, pendingRegn:0};
-    agreementByProject[r.project].units += 1;
-    if(r.regnDate === '') agreementByProject[r.project].pendingRegn += 1;
-  });
-  const collectedByProject = {};
-  collectionData.forEach(r=>{ collectedByProject[r.project] = (collectedByProject[r.project]||0) + r.total; });
-  const outstandingByProjectMap = {};
-  outstandingData.forEach(r=>{ outstandingByProjectMap[r.project] = (outstandingByProjectMap[r.project]||0) + r.netReceivable; });
-  const allProjects = new Set([...Object.keys(agreementByProject), ...Object.keys(collectedByProject), ...Object.keys(outstandingByProjectMap)]);
-  const rows = [...allProjects].map(project=>({
-    project,
-    agreementUnits: agreementByProject[project] ? agreementByProject[project].units : null,
-    pendingRegn: agreementByProject[project] ? agreementByProject[project].pendingRegn : null,
-    collected: collectedByProject[project] !== undefined ? collectedByProject[project] : null,
-    outstanding: outstandingByProjectMap[project] !== undefined ? outstandingByProjectMap[project] : null,
-  })).filter(r =>
-    (r.agreementUnits !== null && r.agreementUnits > 0) ||
-    (r.collected !== null && r.collected !== 0) ||
-    (r.outstanding !== null && r.outstanding !== 0)
-  );
-  renderGenericTable({
-    theadId:'crmProjectTheadRow', tbodyId:'crmProjectTbody', tfootId:'crmProjectTfootRow', searchId:'crmProjectSearchBox',
-    sortStateKey:'crmProject',
-    columns:[
-      {key:'project', label:'Project', align:'left'},
-      {key:'agreementUnits', label:'Agreement Units', fmt:fmtNum},
-      {key:'pendingRegn', label:'Pending Registration', fmt:fmtNum},
-      {key:'collected', label:'Collected', fmt:fmtINRCr},
-      {key:'outstanding', label:'Outstanding', fmt:fmtINRCr},
-    ],
-    rowsSource: rows,
-    defaultSort:{key:'outstanding', dir:-1},
-    totalsLabel:'projects'
-  });
-}
 /* ============ UNSOLD: LOCATION WISE & PROPERTY WISE (within Sales > Available) ============ */
 function renderLocationWiseTable(){
   const tbody = document.getElementById('locationWiseTbody');
@@ -3071,12 +2937,21 @@ const columns = [
   {key:'availUnits', label:'Unsold', fmt:fmtNum},
   {key:'blockedUnits', label:'Blocked', fmt:fmtNum},
   {key:'totalArea', label:'Total Area (sq.ft)', fmt:fmtNum},
+  {key:'soldArea', label:'Sold Area (sq.ft)', fmt:fmtNum},
+  {key:'availArea', label:'Unsold Area (sq.ft)', fmt:fmtNum},
   {key:'soldValue', label:'Sales Value', fmt:fmtINRCr},
   {key:'availValue', label:'Unsold Value', fmt:fmtINRCr},
   {key:'totalValue', label:'Total Value', fmt:fmtINRCr},
   {key:'avgSoldPrice', label:'Avg Sold Price (₹/sq.ft)', fmt:(n)=> n===null?'—':'₹'+Math.round(n).toLocaleString('en-IN')},
   {key:'avgAvailPrice', label:'Avg Unsold Price (₹/sq.ft)', fmt:(n)=> n===null?'—':'₹'+Math.round(n).toLocaleString('en-IN')},
   {key:'cancelledUnits', label:'Cancelled', fmt:fmtNum},
+  {key:'agreementUnits', label:'Agreement Units', fmt:fmtNum},
+  {key:'pendingRegn', label:'Pending Registration', fmt:fmtNum},
+  {key:'collected', label:'Collected', fmt:fmtINRCr},
+  {key:'totalCost', label:'Total Cost', fmt:fmtINRCr},
+  {key:'totalReceived', label:'Total Received', fmt:fmtINRCr},
+  {key:'outstandingBalance', label:'Outstanding', fmt:fmtINRCr},
+  {key:'outstandingPct', label:'Outstanding %', fmt:fmtPct},
 ];
 let sortState = {key:'totalValue', dir:-1};
 function renderTable(){
@@ -3116,18 +2991,25 @@ function renderTable(){
     acc.totalArea+=m.totalArea||0; acc.soldValue+=m.soldValue||0; acc.availValue+=m.availValue||0; acc.totalValue+=m.totalValue||0;
     acc.soldArea+=m.soldArea||0; acc.availArea+=m.availArea||0;
     acc.cancelledUnits+=m.cancelledUnits||0;
+    acc.agreementUnits+=m.agreementUnits||0; acc.pendingRegn+=m.pendingRegn||0; acc.collected+=m.collected||0;
+    acc.totalCost+=m.totalCost||0; acc.totalReceived+=m.totalReceived||0; acc.outstandingBalance+=m.outstandingBalance||0;
     return acc;
-  },{totalUnits:0,soldUnits:0,availUnits:0,blockedUnits:0,totalArea:0,soldValue:0,availValue:0,totalValue:0,soldArea:0,availArea:0,cancelledUnits:0});
+  },{totalUnits:0,soldUnits:0,availUnits:0,blockedUnits:0,totalArea:0,soldValue:0,availValue:0,totalValue:0,soldArea:0,availArea:0,cancelledUnits:0,
+     agreementUnits:0,pendingRegn:0,collected:0,totalCost:0,totalReceived:0,outstandingBalance:0});
   const avgSoldPriceAll = t.soldArea ? t.soldValue/t.soldArea : null;
   const avgAvailPriceAll = t.availArea ? t.availValue/t.availArea : null;
+  const outstandingPctAll = t.totalCost ? (t.outstandingBalance/t.totalCost*100) : null;
   document.getElementById('tfootRow').innerHTML = `
     <td class="proj">Total (${rows.length} projects)</td>
     <td>${fmtNum(t.totalUnits)}</td><td>${fmtNum(t.soldUnits)}</td><td>${fmtNum(t.availUnits)}</td><td>${fmtNum(t.blockedUnits)}</td>
-    <td>${fmtNum(t.totalArea)}</td>
+    <td>${fmtNum(t.totalArea)}</td><td>${fmtNum(t.soldArea)}</td><td>${fmtNum(t.availArea)}</td>
     <td>${fmtINRCr(t.soldValue)}</td><td>${fmtINRCr(t.availValue)}</td><td>${fmtINRCr(t.totalValue)}</td>
     <td>${avgSoldPriceAll===null?'—':'₹'+Math.round(avgSoldPriceAll).toLocaleString('en-IN')}</td>
     <td>${avgAvailPriceAll===null?'—':'₹'+Math.round(avgAvailPriceAll).toLocaleString('en-IN')}</td>
     <td>${fmtNum(t.cancelledUnits)}</td>
+    <td>${fmtNum(t.agreementUnits)}</td><td>${fmtNum(t.pendingRegn)}</td><td>${fmtINRCr(t.collected)}</td>
+    <td>${fmtINRCr(t.totalCost)}</td><td>${fmtINRCr(t.totalReceived)}</td><td>${fmtINRCr(t.outstandingBalance)}</td>
+    <td>${fmtPct(outstandingPctAll)}</td>
   `;
 }
 document.getElementById('searchBox').addEventListener('input', renderTable);
