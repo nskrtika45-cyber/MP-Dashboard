@@ -3366,16 +3366,23 @@ function renderGenericTableBody(opts){
       return `<td class="${cls}">${display}</td>`;
     }).join('') + '</tr>';
   }).join('');
+  // The first column is always this table's row label (project, agent, etc.) — its footer cell gets
+  // the "Total (N label)" text instead of a sum. Using columns[0].key here (rather than assuming the
+  // label column is literally named 'project') matters: a table whose label column has a different key
+  // — e.g. the Vendor-wise table's 'agent' — would otherwise fall through to the generic summing branch
+  // below, where `totals[c.key] += (r[c.key]||0)` string-concatenates every vendor name onto the number
+  // 0 instead of summing anything, corrupting the footer with runs of "0VendorNameVendorName...".
+  const labelKey = columns[0].key;
   const totals = {};
-  columns.forEach(c=>{ if(c.key !== 'project' && !c.noSum && !c.key.toLowerCase().includes('rate')) totals[c.key] = 0; });
+  columns.forEach(c=>{ if(c.key !== labelKey && !c.noSum && !c.key.toLowerCase().includes('rate')) totals[c.key] = 0; });
   rows.forEach(r=>{
     columns.forEach(c=>{
-      if(c.key === 'project' || c.noSum || c.key.toLowerCase().includes('rate')) return;
+      if(c.key === labelKey || c.noSum || c.key.toLowerCase().includes('rate')) return;
       totals[c.key] += (r[c.key]||0);
     });
   });
   const tfootCells = columns.map(c=>{
-    if(c.key === 'project') return `<td class="proj">Total (${rows.length} ${totalsLabel})</td>`;
+    if(c.key === labelKey) return `<td class="proj">Total (${rows.length} ${totalsLabel})</td>`;
     if(c.noSum || c.key.toLowerCase().includes('rate')) return `<td>—</td>`;
     return `<td>${c.fmt ? c.fmt(totals[c.key]) : totals[c.key]}</td>`;
   });
