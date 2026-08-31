@@ -698,10 +698,7 @@
       </div>
       <p class="chart-note" style="margin:4px 2px 14px;">Combines the Sales Promotion Payment Report and the Expense Requisition Details Report into a single Marketing overview. Cancelled and rejected expense requisitions are excluded from every expense figure below — they were never actually paid or owed.</p>
       <div class="section-title group"><h2>All Key Metrics</h2><div class="line"></div></div>
-      <div class="kpi-grid">
-        <div id="kpiGridMarketing" style="display:contents"></div>
-        <div id="kpiGridMarketingExpense" style="display:contents"></div>
-      </div>
+      <div class="kpi-grid" id="kpiGridMarketingAll"></div>
       <div class="section-title"><h2>Marketing Spend by Project, Activity, Type &amp; Vendor</h2><div class="line"></div></div>
       <div class="chart-grid">
         <div class="chart-card"><h3>Net amount by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingProject"></canvas></div></div>
@@ -2500,10 +2497,12 @@ document.getElementById('filterClear').addEventListener('click', function(){
 document.getElementById('filterMarketingProject').addEventListener('change', function(){
   marketingFilterState.project = this.value;
   renderMarketingPage();
+  renderMarketingKPIs();
 });
 document.getElementById('filterMarketingExpenseType').addEventListener('change', function(){
   marketingExpenseFilterState.subType = this.value;
   renderMarketingExpensePage();
+  renderMarketingKPIs();
 });
 document.getElementById('filterMarketingClear').addEventListener('click', function(){
   marketingFilterState = { project:'' };
@@ -2512,6 +2511,7 @@ document.getElementById('filterMarketingClear').addEventListener('click', functi
   document.getElementById('filterMarketingExpenseType').value = '';
   renderMarketingPage();
   renderMarketingExpensePage();
+  renderMarketingKPIs();
 });
 /* ============ FORMATTING ============ */
 function fmtINRCr(n){
@@ -2547,6 +2547,7 @@ function renderAll(){
   renderPropertyWiseTable();
   renderMarketingPage();
   renderMarketingExpensePage();
+  renderMarketingKPIs();
 }
 function grandTotals(){
   return masterData.reduce((acc,m)=>{
@@ -3258,41 +3259,77 @@ function renderBookingPage(){
   });
 }
 /* ============ MARKETING MODULE ============ */
+// Renders the single, combined "All Key Metrics" grid for the Marketing tab. Some fields mean the
+// same thing across the two source reports, so per the user's explicit mapping those are added
+// together into one tile instead of shown twice:
+//   Net Amount (Promotion) + Gross Amount (Expense)            -> "Net / Gross Amount"
+//   Advance Recovered (Promotion) + Advance Adjusted (Expense) -> "Advance Recovered / Adjusted"
+//   Promotion Paid Amount + Expense Paid Amount                -> "Paid Amount"
+//   Promotion Outstanding + Expense Outstanding                -> "Outstanding Amount"
+//   TDS Deducted (Promotion) + Deduction Tax/TDS (Expense)     -> "TDS Deducted"
+// Each side of a combined tile still respects that source's own filter (Project for Promotion,
+// Expense Sub Type for Expense) — the two filters are independent, so a combined total is simply
+// the sum of each side's already-filtered total. Fields with no counterpart in the other report
+// (Promotion Requests, Advance Paid, Surcharge, Expense Requisitions, Certified Amount, Amount
+// Payable) stay as their own single tile.
+function renderMarketingKPIs(){
+  const promo = RAW.promotionRecords.filter(r =>
+    (!marketingFilterState.project || r.project === marketingFilterState.project)
+  );
+  const expense = RAW.expenseRequisitionRecords.filter(r =>
+    (!marketingExpenseFilterState.subType || r.expenseSubType === marketingExpenseFilterState.subType)
+  );
+  const psum = key => promo.reduce((a,r)=>a+(r[key]||0), 0);
+  const esum = key => expense.reduce((a,r)=>a+(r[key]||0), 0);
+  // Advance Amount repeats per Request Id in the promotion report — always de-duplicate via
+  // uniqueAdvanceSum, never sum() it directly.
+  const advancePaidTotal = uniqueAdvanceSum(promo);
+  const promoRequestCount = new Set(promo.map(r=>r.requestId)).size;
+  const promoNetAmount = psum('netAmount');
+  const promoPaid = psum('paidAmount');
+  const promoOutstanding = psum('amountOutstanding');
+  const promoTds = psum('tds');
+  const promoAdvanceRecovered = psum('advanceRecovered');
+  const expenseCertified = esum('certifiedAmount');
+  const expenseGross = esum('grossAmount');
+  const expenseAdvAdjusted = esum('advanceAdjusted');
+  const expensePayable = esum('amountPayable');
+  const expensePaid = esum('paidAmount');
+  const expenseOutstanding = esum('outstanding');
+  const expenseDedTax = esum('dedTax');
+  const combinedNetGross = promoNetAmount + expenseGross;
+  const combinedAdvRecAdj = promoAdvanceRecovered + expenseAdvAdjusted;
+  const combinedPaid = promoPaid + expensePaid;
+  const combinedOutstanding = promoOutstanding + expenseOutstanding;
+  const combinedTds = promoTds + expenseDedTax;
+  document.getElementById('kpiGridMarketingAll').innerHTML = [
+    {lbl:'Promotion Requests', val: fmtNum(promoRequestCount), sub: `${fmtNum(promo.length)} certificate / payment line items`},
+    {lbl:'Expense Requisitions', val: fmtNum(expense.length), sub:'Genuine transactions only — cancelled and rejected already excluded'},
+    {lbl:'Advance Paid', val: fmtINRCr(advancePaidTotal), sub:'Total advance released against promotion requests'},
+    {lbl:'Certified Amount', val: fmtINRCr(expenseCertified), sub:'Certified value of marketing expense requisitions'},
+    {lbl:'Amount Payable', val: fmtINRCr(expensePayable), sub:'Net expense amount payable after advance adjustment and deductions'},
+    {lbl:'Surcharge', val: fmtINRCr(psum('surcharge')), sub:'Surcharge deducted on promotion payments'},
+    {lbl:'Net / Gross Amount', val: fmtINRCr(combinedNetGross), sub: `Promotion Net Amount ${fmtINRCr(promoNetAmount)} + Expense Gross Amount ${fmtINRCr(expenseGross)}`},
+    {lbl:'Advance Recovered / Adjusted', val: fmtINRCr(combinedAdvRecAdj), sub: `Promotion ${fmtINRCr(promoAdvanceRecovered)} + Expense ${fmtINRCr(expenseAdvAdjusted)}`},
+    {lbl:'Paid Amount', val: fmtINRCr(combinedPaid), sub: `Promotion ${fmtINRCr(promoPaid)} + Expense ${fmtINRCr(expensePaid)}`},
+    {lbl:'Outstanding Amount', val: fmtINRCr(combinedOutstanding), sub: combinedOutstanding < 0 ? 'Negative — paid ahead of amount due overall' : `Promotion ${fmtINRCr(promoOutstanding)} + Expense ${fmtINRCr(expenseOutstanding)}`},
+    {lbl:'TDS Deducted', val: fmtINRCr(combinedTds), sub: `Promotion ${fmtINRCr(promoTds)} + Expense ${fmtINRCr(expenseDedTax)}`},
+  ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+}
 // Independent of the Sales/CRM Project+FY+Month filter bar — Marketing has its own Project list
 // (many rows are company-wide "Brand / Corporate" spend with no project at all) and its own
 // Project filter, tracked in marketingFilterState.
 function renderMarketingPage(){
   if(!RAW.promotionRecords.length){
-    document.getElementById('kpiGridMarketing').innerHTML = '';
     destroyChart('marketingProject'); destroyChart('marketingActivity'); destroyChart('marketingFY');
     chartEmptyMessage('chartMarketingProject', 'Upload the Sales Promotion Payment Report to see this chart.');
     chartEmptyMessage('chartMarketingActivity', 'Upload the Sales Promotion Payment Report to see this chart.');
     chartEmptyMessage('chartMarketingFY', 'Upload the Sales Promotion Payment Report to see this chart.');
-    return; // combined KPI grid / chart-grid still render the expense side; this just leaves the promotion side blank
+    return; // combined KPI grid (renderMarketingKPIs) / chart-grid still render the expense side; this just leaves the promotion side blank
   }
   const filtered = RAW.promotionRecords.filter(r =>
     (!marketingFilterState.project || r.project === marketingFilterState.project)
   );
-  const sum = key => filtered.reduce((a,r)=>a+(r[key]||0), 0);
-  // Advance Amount repeats per Request Id — always de-duplicate via uniqueAdvanceSum, never sum() it directly.
-  const advancePaidTotal = uniqueAdvanceSum(filtered);
-  const advanceRecoveredTotal = sum('advanceRecovered');
-  const advanceOutstanding = advancePaidTotal - advanceRecoveredTotal;
-  const netAmountTotal = sum('netAmount');
-  const paidTotal = sum('paidAmount');
-  const outstandingTotal = sum('amountOutstanding');
-  const tdsTotal = sum('tds');
-  const requestCount = new Set(filtered.map(r=>r.requestId)).size;
-  document.getElementById('kpiGridMarketing').innerHTML = [
-    {lbl:'Promotion Requests', val: fmtNum(requestCount), sub: `${fmtNum(filtered.length)} certificate / payment line items`},
-    {lbl:'Advance Paid', val: fmtINRCr(advancePaidTotal), sub:'Total advance released against requests'},
-    {lbl:'Advance Recovered', val: fmtINRCr(advanceRecoveredTotal), sub: `${fmtINRCr(advanceOutstanding)} advance not yet recovered`},
-    {lbl:'Net Amount', val: fmtINRCr(netAmountTotal), sub:'Total certified / invoice value processed'},
-    {lbl:'Promotion Paid Amount', val: fmtINRCr(paidTotal), sub:'Actually paid out to vendors / agents'},
-    {lbl:'Promotion Outstanding', val: fmtINRCr(outstandingTotal), sub: outstandingTotal < 0 ? 'Negative — paid ahead of net amount overall' : 'Net amount certified but not yet paid'},
-    {lbl:'TDS Deducted', val: fmtINRCr(tdsTotal), sub:'Tax deducted at source'},
-    {lbl:'Surcharge', val: fmtINRCr(sum('surcharge')), sub:'Surcharge deducted on promotion payments'},
-  ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
   const brick = getComputedStyle(document.documentElement).getPropertyValue('--brick').trim();
@@ -3468,33 +3505,14 @@ function renderMarketingPage(){
 // reflects real transactions only.
 function renderMarketingExpensePage(){
   if(!RAW.expenseRequisitionRecords.length){
-    document.getElementById('kpiGridMarketingExpense').innerHTML = '';
     destroyChart('marketingExpenseType'); destroyChart('marketingExpenseVendor');
     chartEmptyMessage('chartMarketingExpenseType', 'Upload the Expense Requisition Details Report to see this chart.');
     chartEmptyMessage('chartMarketingExpenseVendor', 'Upload the Expense Requisition Details Report to see this chart.');
-    return; // combined KPI grid / chart-grid still render the promotion side; this just leaves the expense side blank
+    return; // combined KPI grid (renderMarketingKPIs) / chart-grid still render the promotion side; this just leaves the expense side blank
   }
   const filtered = RAW.expenseRequisitionRecords.filter(r =>
     (!marketingExpenseFilterState.subType || r.expenseSubType === marketingExpenseFilterState.subType)
   );
-  const sum = key => filtered.reduce((a,r)=>a+(r[key]||0), 0);
-  const certifiedTotal = sum('certifiedAmount');
-  const grossTotal = sum('grossAmount');
-  const advAdjustedTotal = sum('advanceAdjusted');
-  const payableTotal = sum('amountPayable');
-  const paidTotal = sum('paidAmount');
-  const outstandingTotal = sum('outstanding');
-  const dedTaxTotal = sum('dedTax');
-  document.getElementById('kpiGridMarketingExpense').innerHTML = [
-    {lbl:'Expense Requisitions', val: fmtNum(filtered.length), sub:'Genuine transactions only — cancelled and rejected already excluded'},
-    {lbl:'Certified Amount', val: fmtINRCr(certifiedTotal), sub:'Certified value of marketing expense requisitions'},
-    {lbl:'Gross Amount', val: fmtINRCr(grossTotal), sub:'Certified amount including tax additions'},
-    {lbl:'Advance Adjusted', val: fmtINRCr(advAdjustedTotal), sub:'Advances adjusted against these requisitions'},
-    {lbl:'Amount Payable', val: fmtINRCr(payableTotal), sub:'Net amount payable after advance adjustment and deductions'},
-    {lbl:'Expense Paid Amount', val: fmtINRCr(paidTotal), sub:'Actually paid out to vendors'},
-    {lbl:'Expense Outstanding', val: fmtINRCr(outstandingTotal), sub: outstandingTotal < 0 ? 'Negative — paid ahead of amount payable overall' : 'Payable but not yet paid'},
-    {lbl:'Deduction Tax (TDS)', val: fmtINRCr(dedTaxTotal), sub:'Tax deducted on marketing expense payments'},
-  ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
   const brick = getComputedStyle(document.documentElement).getPropertyValue('--brick').trim();
