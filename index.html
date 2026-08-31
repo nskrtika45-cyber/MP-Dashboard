@@ -435,10 +435,16 @@
         <div class="hint">Adds the Marketing module — promotion advances, recoveries, net/paid amounts &amp; outstanding</div>
         <input type="file" id="file8" accept=".xlsx">
       </label>
+      <label class="drop" id="drop9">
+        <div class="label">9 &middot; Expense Requisition Details Report <span style="text-transform:none;font-weight:400;">(optional)</span></div>
+        <div class="fname" id="fname9">Click to choose file (.xlsx)</div>
+        <div class="hint">Adds Marketing Expenses — certified/gross amounts, advance adjusted, amount payable, paid &amp; outstanding by expense type and vendor</div>
+        <input type="file" id="file9" accept=".xlsx">
+      </label>
     </div>
     <div class="btn-row">
       <button class="btn btn-primary" id="genBtn" disabled>Generate &amp; publish dashboard</button>
-      <span class="footer-note">Files 1 &amp; 2 are required each month; files 3–8 are optional and unlock extra tabs or detail. Publishing makes this visible to Management.</span>
+      <span class="footer-note">Files 1 &amp; 2 are required each month; files 3–9 are optional and unlock extra tabs or detail. Publishing makes this visible to Management.</span>
     </div>
     <div class="err" id="errMsg"></div>
     <div class="publish-status" id="publishStatus" style="display:none;"></div>
@@ -676,9 +682,14 @@
       <div class="section-title group"><h2>Marketing</h2><div class="line"></div></div>
       <div class="empty-state" id="marketingEmptyState">
         <h2>No Marketing data yet</h2>
-        <p>Upload the Sales Promotion Payment Report (file 8 on the upload panel) and publish to see the Marketing dashboard here.</p>
+        <p>Upload the Sales Promotion Payment Report and/or the Expense Requisition Details Report (files 8 &amp; 9 on the upload panel) and publish to see the Marketing dashboard here.</p>
       </div>
       <div id="marketingContent" style="display:none;">
+      <div class="section-title group"><h2>Promotion Payments</h2><div class="line"></div></div>
+      <div class="empty-state" id="marketingPromoEmptyState">
+        <p style="margin:0;">Upload the Sales Promotion Payment Report (file 8 on the upload panel) to see promotion payment details here.</p>
+      </div>
+      <div id="marketingPromoContent" style="display:none;">
       <div class="filter-bar">
         <div class="filter-field">
           <label for="filterMarketingProject">Project</label>
@@ -736,6 +747,70 @@
         </div>
       </div>
       </div>
+      <!-- end marketingPromoContent -->
+      <div class="section-title group"><h2>Marketing Expenses (Requisitions)</h2><div class="line"></div></div>
+      <div class="empty-state" id="marketingExpenseEmptyState">
+        <p style="margin:0;">Upload the Expense Requisition Details Report (file 9 on the upload panel) to see marketing expense details here.</p>
+      </div>
+      <div id="marketingExpenseContent" style="display:none;">
+      <div class="filter-bar">
+        <div class="filter-field">
+          <label for="filterMarketingExpenseType">Expense Sub Type</label>
+          <select id="filterMarketingExpenseType"><option value="">All Types</option></select>
+        </div>
+        <button class="btn btn-ghost" id="filterMarketingExpenseClear">Clear filters</button>
+      </div>
+      <p class="chart-note" style="margin:4px 2px 14px;">Cancelled and rejected requisitions are excluded from every figure below — they were never actually paid or owed.</p>
+      <div class="section-title group"><h2>All Key Metrics</h2><div class="line"></div></div>
+      <div class="kpi-grid" id="kpiGridMarketingExpense"></div>
+      <div class="section-title"><h2>Marketing Expenses by Type &amp; Vendor</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="chart-card"><h3>Certified amount by expense type (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingExpenseType"></canvas></div></div>
+        <div class="chart-card"><h3>Outstanding amount by vendor (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingExpenseVendor"></canvas></div></div>
+      </div>
+      <div class="section-title"><h2>Expense-Type-wise Detail</h2><div class="line"></div></div>
+      <div class="table-toolbar">
+        <input type="text" id="marketingExpenseTypeSearchBox" placeholder="Search expense sub type...">
+      </div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="marketingExpenseTypeTable">
+            <thead><tr id="marketingExpenseTypeTheadRow"></tr></thead>
+            <tbody id="marketingExpenseTypeTbody"></tbody>
+            <tfoot><tr id="marketingExpenseTypeTfootRow"></tr></tfoot>
+          </table>
+        </div>
+      </div>
+      <div class="section-title"><h2>Vendor-wise Expense Detail</h2><div class="line"></div></div>
+      <div class="table-toolbar">
+        <input type="text" id="marketingExpenseVendorSearchBox" placeholder="Search vendor name...">
+      </div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="marketingExpenseVendorTable">
+            <thead><tr id="marketingExpenseVendorTheadRow"></tr></thead>
+            <tbody id="marketingExpenseVendorTbody"></tbody>
+            <tfoot><tr id="marketingExpenseVendorTfootRow"></tr></tfoot>
+          </table>
+        </div>
+      </div>
+      <div class="section-title"><h2>Requisition-wise Expense Detail</h2><div class="line"></div></div>
+      <div class="table-toolbar">
+        <input type="text" id="marketingExpenseSearchBox" placeholder="Search expense type, vendor or invoice no...">
+      </div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="marketingExpenseTable">
+            <thead><tr id="marketingExpenseTheadRow"></tr></thead>
+            <tbody id="marketingExpenseTbody"></tbody>
+            <tfoot><tr id="marketingExpenseTfootRow"></tr></tfoot>
+          </table>
+        </div>
+      </div>
+      </div>
+      <!-- end marketingExpenseContent -->
+      </div>
+      <!-- end marketingContent -->
     </div>
     </div>
     </div>
@@ -795,7 +870,7 @@ const db = firebase.firestore();
 // Firestore caps each document at 1MiB. The combined RAW data can exceed that (it's already
 // ~1.4MB with 5 reports loaded), so each RAW.* array is stored as its own small document instead
 // of one big one — every individual piece has comfortable headroom to keep growing month to month.
-const RAW_KEYS = ['customerRecords','stockDict','stockUnitRecords','agreementRecords','collectionReceiptRecords','bookingRecords','outstandingRecords','cancellationRecords','promotionRecords'];
+const RAW_KEYS = ['customerRecords','stockDict','stockUnitRecords','agreementRecords','collectionReceiptRecords','bookingRecords','outstandingRecords','cancellationRecords','promotionRecords','expenseRequisitionRecords'];
 // Project -> physical location & property type, as supplied by MP Developers (not derivable from
 // any ERP report). Projects not in this list show under "Unmapped" in the Location Wise view
 // rather than being silently dropped or guessed at — flag those to be added here as they come up.
@@ -969,11 +1044,21 @@ function updateSectionVisibility(){
   const overviewBookingsSection = document.getElementById('overviewBookingsSection');
   if(overviewBookingsHeader) overviewBookingsHeader.style.display = hasBookings ? '' : 'none';
   if(overviewBookingsSection) overviewBookingsSection.style.display = hasBookings ? '' : 'none';
-  const hasMarketing = RAW.promotionRecords.length > 0;
+  const hasMarketingPromo = RAW.promotionRecords.length > 0;
+  const hasMarketingExpense = RAW.expenseRequisitionRecords.length > 0;
+  const hasMarketing = hasMarketingPromo || hasMarketingExpense;
   const marketingEmpty = document.getElementById('marketingEmptyState');
   const marketingContent = document.getElementById('marketingContent');
   if(marketingEmpty) marketingEmpty.style.display = hasMarketing ? 'none' : '';
   if(marketingContent) marketingContent.style.display = hasMarketing ? '' : 'none';
+  const marketingPromoEmpty = document.getElementById('marketingPromoEmptyState');
+  const marketingPromoContent = document.getElementById('marketingPromoContent');
+  if(marketingPromoEmpty) marketingPromoEmpty.style.display = hasMarketingPromo ? 'none' : '';
+  if(marketingPromoContent) marketingPromoContent.style.display = hasMarketingPromo ? '' : 'none';
+  const marketingExpenseEmpty = document.getElementById('marketingExpenseEmptyState');
+  const marketingExpenseContent = document.getElementById('marketingExpenseContent');
+  if(marketingExpenseEmpty) marketingExpenseEmpty.style.display = hasMarketingExpense ? 'none' : '';
+  if(marketingExpenseContent) marketingExpenseContent.style.display = hasMarketingExpense ? '' : 'none';
 }
 async function tryLoadPublishedData(){
   try{
@@ -985,7 +1070,7 @@ async function tryLoadPublishedData(){
     // A dashboard published before a given RAW key existed (e.g. promotionRecords, added for the
     // Marketing module) won't have that chunk doc at all — treat it as "not uploaded yet" rather
     // than failing the whole load, so older published dashboards keep working until MIS re-publishes.
-    const OPTIONAL_KEYS_IF_MISSING = ['promotionRecords'];
+    const OPTIONAL_KEYS_IF_MISSING = ['promotionRecords', 'expenseRequisitionRecords'];
     for(let i=0;i<RAW_KEYS.length;i++){
       if(!chunkDocs[i].exists){
         if(OPTIONAL_KEYS_IF_MISSING.includes(RAW_KEYS[i])){ newRAW[RAW_KEYS[i]] = []; continue; }
@@ -998,8 +1083,10 @@ async function tryLoadPublishedData(){
     lastPublished = { at: meta.generatedAt, files: meta.sourceFiles || [] };
     filterState = { project:'', fy:'', month:'' };
     marketingFilterState = { project: '' };
+    marketingExpenseFilterState = { subType: '' };
     populateFilterOptions();
     populateMarketingFilterOptions();
+    populateMarketingExpenseFilterOptions();
     applyFiltersAndRender();
     updateLastUpdatedBadge();
     return true;
@@ -1239,7 +1326,7 @@ document.querySelectorAll('.module-btn').forEach(btn=>{
     window.scrollTo({top:0, behavior:'smooth'});
   });
 });
-let file1Data = null, file2Data = null, file3Data = null, file4Data = null, file5Data = null, file6Data = null, file7Data = null, file8Data = null;
+let file1Data = null, file2Data = null, file3Data = null, file4Data = null, file5Data = null, file6Data = null, file7Data = null, file8Data = null, file9Data = null;
 // RAW = unfiltered per-record data, parsed once when files load. Everything the dashboard renders
 // is derived from RAW by applyFiltersAndRender() so the Project / Financial Year / Month filters
 // can recompute every KPI, chart and table consistently instead of just hiding rows visually.
@@ -1254,9 +1341,14 @@ let RAW = {
   cancellationRecords: [],     // Customer Cancellation Report: project, bookingDate, unitValue, cancellationDate, reason
   promotionRecords: [],        // Sales Promotion Payment Report: project, agent, request id, activity description,
                                 // certificate/cheque no, advance/recovered/TDS/net/paid/outstanding amounts — see Marketing module
+  expenseRequisitionRecords: [],// Expense Requisition Details Report: department, project, expense sub type, vendor,
+                                // certified/gross/advance-adjusted/net-certified/payable/outstanding amounts — see
+                                // Marketing Expenses section. Cancelled and rejected requisitions are dropped at
+                                // parse time (see parseExpenseRequisitionReport), so every record here is a real transaction.
 };
 let filterState = { project: '', fy: '', month: '' };
 let marketingFilterState = { project: '' };
+let marketingExpenseFilterState = { subType: '' };
 // Derived / currently-displayed data — render functions read these exactly as before.
 let masterData = [];
 let fyData = [];
@@ -1312,6 +1404,7 @@ wireDrop('drop5','file5','fname5', f=>{ file5Data = f; checkReady(); });
 wireDrop('drop6','file6','fname6', f=>{ file6Data = f; checkReady(); });
 wireDrop('drop7','file7','fname7', f=>{ file7Data = f; checkReady(); });
 wireDrop('drop8','file8','fname8', f=>{ file8Data = f; checkReady(); });
+wireDrop('drop9','file9','fname9', f=>{ file9Data = f; checkReady(); });
 function checkReady(){
   document.getElementById('genBtn').disabled = !(file1Data && file2Data);
 }
@@ -1361,13 +1454,21 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
     } else {
       RAW.promotionRecords = [];
     }
+    if(file9Data){
+      const wb9 = await readFileAsWB(file9Data);
+      RAW.expenseRequisitionRecords = parseExpenseRequisitionReport(wb9);
+    } else {
+      RAW.expenseRequisitionRecords = [];
+    }
     updateSectionVisibility();
     filterState = { project: '', fy: '', month: '' };
     marketingFilterState = { project: '' };
+    marketingExpenseFilterState = { subType: '' };
     populateFilterOptions();
     populateMarketingFilterOptions();
+    populateMarketingExpenseFilterOptions();
     applyFiltersAndRender();
-    const fileNames = [file1Data.name, file2Data.name, file3Data && file3Data.name, file4Data && file4Data.name, file5Data && file5Data.name, file6Data && file6Data.name, file7Data && file7Data.name, file8Data && file8Data.name].filter(Boolean);
+    const fileNames = [file1Data.name, file2Data.name, file3Data && file3Data.name, file4Data && file4Data.name, file5Data && file5Data.name, file6Data && file6Data.name, file7Data && file7Data.name, file8Data && file8Data.name, file9Data && file9Data.name].filter(Boolean);
     document.getElementById('uploadCard').style.display='none';
     document.getElementById('loadedBar').style.display='flex';
     document.getElementById('loadedNames').textContent = 'Loaded ' + fileNames.join(' + ');
@@ -2016,6 +2117,84 @@ function uniqueAdvanceSum(records){
   });
   return total;
 }
+// ---- Expense Requisition Details Report (Marketing Expenses) ----
+// The sheet has a title block (rows 0-1), then the real header row, then data rows grouped by
+// Vendor / Payment Favouring with a "Vendor wise Total :" subtotal row after every group, and finally
+// one or more "Company wise Total :" rows (one per company in the file — this report can contain more
+// than one). All of these subtotal/total rows share the same shape: every column blank except a label
+// in the Invoice No column and the subtotal figures themselves — and critically, Expense Id (the row's
+// only per-row numeric identifier) is blank on all of them. So `typeof expenseId !== 'number'` is a
+// single guard that correctly skips every vendor subtotal AND every company total in one go, exactly
+// like the Grand-Total-row guard used by every other report in this file. Verified: summing this
+// report's own real data rows reproduces the sum of its two "Company wise Total" rows exactly, for
+// all 9 monetary columns — so no column here needs any WO-level/request-level de-duplication.
+//
+// CANCELLED and REJECTED requisitions are dropped entirely (not just excluded from sums) — their
+// Amount Payable is real but their Outstanding is always 0, which would make `Amount Payable −
+// Outstanding` look like they were fully PAID when nothing was ever actually paid or owed. Every other
+// status (PAID, PARTIALLY PAID, PROCESSED, APPROVED, SUBMITTED, RESUBMIT) reports Outstanding
+// correctly as-is, so Amount Payable − Outstanding is a safe "Paid Amount" for every record that
+// survives this filter.
+function parseExpenseRequisitionReport(wb){
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = sheetToRows(ws);
+  let headerIdx = rows.findIndex(r => normalizeHeader(r[0]) === 'Company Name' && r.some(c => normalizeHeader(c) === 'Expense Id'));
+  if(headerIdx < 0) headerIdx = 2;
+  const headerRow = rows[headerIdx] || [];
+  const col = {};
+  headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
+  const at = (label, fallback) => col[label] !== undefined ? col[label] : fallback;
+  const companyIdx = at('Company Name', 0);
+  const departmentIdx = at('Department Name', 1);
+  const projectIdx = at('Project Name', 2);
+  const expenseTypeIdx = at('Expense Type', 3);
+  const expenseSubTypeIdx = at('Expense Sub Type', 4);
+  const vendorIdx = at('Vendor Name', 5);
+  const favouringIdx = at('Payment Favouring', 6);
+  const typeOfPayIdx = at('Type Of Pay', 8);
+  const expenseIdIdx = at('Expense Id', 9);
+  const invoiceNoIdx = at('Invoice No', 10);
+  const invoiceDateIdx = at('Invoice Date', 11);
+  const certifiedIdx = at('Certified Amount', 12);
+  const addTaxIdx = at('Total Addition Tax', 13);
+  const grossIdx = at('Gross Amount', 14);
+  const advAdjustedIdx = at('Advance Adjusted', 15);
+  const netCertifiedIdx = at('Net Certified Amount', 16);
+  const dedTaxIdx = at('Total Deduction Tax', 17);
+  const debitNoteIdx = at('Debit Note Adjusted', 18);
+  const payableIdx = at('Amount Payable', 19);
+  const outstandingIdx = at('Outstanding', 20);
+  const remarksIdx = at('Remarks', 21);
+  const modeOfPaymentIdx = at('Mode Of Payment', 22);
+  const processedDateIdx = at('Processed Date', 23);
+  const statusIdx = at('Status', 24);
+  const num = v => typeof v === 'number' ? v : (v ? (Number(String(v).replace(/[^0-9.-]/g,'')) || 0) : 0);
+  const records = [];
+  for(let i=headerIdx+1; i<rows.length; i++){
+    const r = rows[i];
+    if(!r) continue;
+    const expenseId = r[expenseIdIdx];
+    if(typeof expenseId !== 'number') continue; // vendor-subtotal / company-total / trailing blank rows
+    const status = (''+(r[statusIdx]||'')).trim().toUpperCase();
+    if(status === 'CANCELLED' || status === 'REJECTED') continue; // never actually paid or owed — see note above
+    const rawProject = r[projectIdx];
+    const payable = num(r[payableIdx]);
+    const outstanding = num(r[outstandingIdx]);
+    records.push({
+      company: r[companyIdx] || '', department: r[departmentIdx] || '',
+      project: rawProject ? normalizeProjectName(rawProject) : '',
+      expenseType: r[expenseTypeIdx] || '', expenseSubType: r[expenseSubTypeIdx] || '',
+      vendor: r[vendorIdx] || r[favouringIdx] || 'Unspecified', // Payment Favouring is populated far more often than Vendor Name
+      typeOfPay: r[typeOfPayIdx] || '', expenseId, invoiceNo: r[invoiceNoIdx] || '', invoiceDate: r[invoiceDateIdx] || '',
+      certifiedAmount: num(r[certifiedIdx]), addTax: num(r[addTaxIdx]), grossAmount: num(r[grossIdx]),
+      advanceAdjusted: num(r[advAdjustedIdx]), netCertifiedAmount: num(r[netCertifiedIdx]), dedTax: num(r[dedTaxIdx]),
+      debitNoteAdjusted: num(r[debitNoteIdx]), amountPayable: payable, outstanding,
+      paidAmount: payable - outstanding, remarks: r[remarksIdx] || '',
+      modeOfPayment: r[modeOfPaymentIdx] || '', processedDate: r[processedDateIdx] || '', status: r[statusIdx] || '',
+    });
+  }
+  return records;
+}
 function buildMasterTable(discount, stock, value){
   const allProjects = new Set([...Object.keys(stock), ...Object.keys(value), ...Object.keys(discount)]);
   const master = [];
@@ -2131,6 +2310,17 @@ function populateMarketingFilterOptions(){
   const sortedProjects = [...projects].sort();
   projSel.innerHTML = '<option value="">All Projects</option>' + sortedProjects.map(p=>`<option value="${p}">${p}</option>`).join('');
   if(sortedProjects.includes(marketingFilterState.project)) projSel.value = marketingFilterState.project; else marketingFilterState.project = '';
+}
+// Marketing Expenses has its own filter (by Expense Sub Type, since Project is populated on only a
+// small minority of expense rows) — kept independent of the Promotion Payments filter above.
+function populateMarketingExpenseFilterOptions(){
+  const typeSel = document.getElementById('filterMarketingExpenseType');
+  if(!typeSel) return;
+  const types = new Set();
+  RAW.expenseRequisitionRecords.forEach(r=> r.expenseSubType && types.add(r.expenseSubType));
+  const sortedTypes = [...types].sort();
+  typeSel.innerHTML = '<option value="">All Types</option>' + sortedTypes.map(t=>`<option value="${t}">${t}</option>`).join('');
+  if(sortedTypes.includes(marketingExpenseFilterState.subType)) typeSel.value = marketingExpenseFilterState.subType; else marketingExpenseFilterState.subType = '';
 }
 function applyFiltersAndRender(){
   const dateFilterActive = !!(filterState.fy || filterState.month);
@@ -2343,6 +2533,15 @@ document.getElementById('filterMarketingClear').addEventListener('click', functi
   document.getElementById('filterMarketingProject').value = '';
   renderMarketingPage();
 });
+document.getElementById('filterMarketingExpenseType').addEventListener('change', function(){
+  marketingExpenseFilterState.subType = this.value;
+  renderMarketingExpensePage();
+});
+document.getElementById('filterMarketingExpenseClear').addEventListener('click', function(){
+  marketingExpenseFilterState = { subType:'' };
+  document.getElementById('filterMarketingExpenseType').value = '';
+  renderMarketingExpensePage();
+});
 /* ============ FORMATTING ============ */
 function fmtINRCr(n){
   if(n === null || n === undefined) return '—';
@@ -2376,6 +2575,7 @@ function renderAll(){
   renderLocationWiseTable();
   renderPropertyWiseTable();
   renderMarketingPage();
+  renderMarketingExpensePage();
 }
 function grandTotals(){
   return masterData.reduce((acc,m)=>{
@@ -3284,6 +3484,167 @@ function renderMarketingPage(){
     totalsLabel:'payment line items'
   });
 }
+/* ============ MARKETING EXPENSES (Expense Requisition Details Report) ============ */
+// Independent of both the Sales/CRM filter bar and the Promotion Payments section above — Project is
+// populated on only a small minority of expense rows (mostly company-wide "Brand / Corporate" spend
+// like Facebook/Google ad accounts), so this section filters by Expense Sub Type instead, tracked in
+// marketingExpenseFilterState. Cancelled/rejected requisitions never even enter
+// RAW.expenseRequisitionRecords (dropped in parseExpenseRequisitionReport), so every figure below
+// reflects real transactions only.
+function renderMarketingExpensePage(){
+  if(!RAW.expenseRequisitionRecords.length){
+    destroyChart('marketingExpenseType'); destroyChart('marketingExpenseVendor');
+    return; // updateSectionVisibility() already shows the "no data" empty state instead of this content
+  }
+  const filtered = RAW.expenseRequisitionRecords.filter(r =>
+    (!marketingExpenseFilterState.subType || r.expenseSubType === marketingExpenseFilterState.subType)
+  );
+  const sum = key => filtered.reduce((a,r)=>a+(r[key]||0), 0);
+  const certifiedTotal = sum('certifiedAmount');
+  const grossTotal = sum('grossAmount');
+  const advAdjustedTotal = sum('advanceAdjusted');
+  const payableTotal = sum('amountPayable');
+  const paidTotal = sum('paidAmount');
+  const outstandingTotal = sum('outstanding');
+  const dedTaxTotal = sum('dedTax');
+  document.getElementById('kpiGridMarketingExpense').innerHTML = [
+    {lbl:'Expense Requisitions', val: fmtNum(filtered.length), sub:'Genuine transactions only — cancelled and rejected already excluded'},
+    {lbl:'Certified Amount', val: fmtINRCr(certifiedTotal), sub:'Certified value of marketing expense requisitions'},
+    {lbl:'Gross Amount', val: fmtINRCr(grossTotal), sub:'Certified amount including tax additions'},
+    {lbl:'Advance Adjusted', val: fmtINRCr(advAdjustedTotal), sub:'Advances adjusted against these requisitions'},
+    {lbl:'Amount Payable', val: fmtINRCr(payableTotal), sub:'Net amount payable after advance adjustment and deductions'},
+    {lbl:'Paid Amount', val: fmtINRCr(paidTotal), sub:'Actually paid out to vendors'},
+    {lbl:'Outstanding Amount', val: fmtINRCr(outstandingTotal), sub: outstandingTotal < 0 ? 'Negative — paid ahead of amount payable overall' : 'Payable but not yet paid'},
+    {lbl:'Deduction Tax (TDS)', val: fmtINRCr(dedTaxTotal), sub:'Tax deducted on marketing expense payments'},
+  ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+  const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
+  const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
+  const brick = getComputedStyle(document.documentElement).getPropertyValue('--brick').trim();
+  // Certified amount by expense sub type (top 15)
+  const byTypeMap = {};
+  filtered.forEach(r=>{
+    const key = r.expenseSubType || 'Unspecified';
+    byTypeMap[key] = (byTypeMap[key]||0) + r.certifiedAmount;
+  });
+  const byType = Object.entries(byTypeMap).map(([type,value])=>({type,value})).filter(t=>t.value>0).sort((a,b)=>b.value-a.value).slice(0,15);
+  destroyChart('marketingExpenseType');
+  if(byType.length === 0){
+    chartEmptyMessage('chartMarketingExpenseType', 'No marketing expenses match the current filter.');
+  } else {
+    chartClearEmptyMessage('chartMarketingExpenseType');
+    charts.marketingExpenseType = new Chart(document.getElementById('chartMarketingExpenseType'), {
+      type:'bar',
+      data:{ labels: byType.map(t=>t.type), datasets:[{ label:'Certified Amount', data: byType.map(t=>t.value/1e7), backgroundColor: teal }] },
+      options:{
+        indexAxis:'y', responsive:true, maintainAspectRatio:false,
+        scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
+        plugins:{
+          legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
+          datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:11}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
+        }
+      },
+      plugins:[ChartDataLabels]
+    });
+  }
+  // Outstanding amount by vendor (top 15)
+  const byVendorMap = {};
+  filtered.forEach(r=>{
+    const key = r.vendor || 'Unspecified';
+    byVendorMap[key] = (byVendorMap[key]||0) + r.outstanding;
+  });
+  const byVendor = Object.entries(byVendorMap).map(([vendor,value])=>({vendor,value})).filter(v=>v.value>0).sort((a,b)=>b.value-a.value).slice(0,15);
+  destroyChart('marketingExpenseVendor');
+  if(byVendor.length === 0){
+    chartEmptyMessage('chartMarketingExpenseVendor', 'No outstanding amount matches the current filter.');
+  } else {
+    chartClearEmptyMessage('chartMarketingExpenseVendor');
+    charts.marketingExpenseVendor = new Chart(document.getElementById('chartMarketingExpenseVendor'), {
+      type:'bar',
+      data:{ labels: byVendor.map(v=>v.vendor), datasets:[{ label:'Outstanding Amount', data: byVendor.map(v=>v.value/1e7), backgroundColor: brick }] },
+      options:{
+        indexAxis:'y', responsive:true, maintainAspectRatio:false,
+        scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
+        plugins:{
+          legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
+          datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:11}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
+        }
+      },
+      plugins:[ChartDataLabels]
+    });
+  }
+  // ---- Expense-Type-wise Detail ----
+  const typeAgg = {};
+  filtered.forEach(r=>{
+    const key = r.expenseSubType || 'Unspecified';
+    if(!typeAgg[key]) typeAgg[key] = {requisitions:0, certifiedAmount:0, grossAmount:0, advanceAdjusted:0, amountPayable:0, paidAmount:0, outstanding:0};
+    const a = typeAgg[key];
+    a.requisitions += 1; a.certifiedAmount += r.certifiedAmount; a.grossAmount += r.grossAmount;
+    a.advanceAdjusted += r.advanceAdjusted; a.amountPayable += r.amountPayable; a.paidAmount += r.paidAmount; a.outstanding += r.outstanding;
+  });
+  const typeRows = Object.entries(typeAgg).map(([expenseSubType,d])=>({ expenseSubType, ...d }));
+  renderGenericTable({
+    theadId:'marketingExpenseTypeTheadRow', tbodyId:'marketingExpenseTypeTbody', tfootId:'marketingExpenseTypeTfootRow', searchId:'marketingExpenseTypeSearchBox',
+    sortStateKey:'marketingExpenseType',
+    columns:[
+      {key:'expenseSubType', label:'Expense Sub Type', align:'left'},
+      {key:'requisitions', label:'Requisitions', fmt:fmtNum},
+      {key:'certifiedAmount', label:'Certified Amount', fmt:fmtINRCr},
+      {key:'grossAmount', label:'Gross Amount', fmt:fmtINRCr},
+      {key:'advanceAdjusted', label:'Advance Adjusted', fmt:fmtINRCr},
+      {key:'amountPayable', label:'Amount Payable', fmt:fmtINRCr},
+      {key:'paidAmount', label:'Paid Amount', fmt:fmtINRCr},
+      {key:'outstanding', label:'Outstanding Amount', fmt:fmtINRCr},
+    ],
+    rowsSource: typeRows,
+    defaultSort:{key:'certifiedAmount', dir:-1},
+    totalsLabel:'expense types'
+  });
+  // ---- Vendor-wise Expense Detail ----
+  const vendorAgg = {};
+  filtered.forEach(r=>{
+    const key = r.vendor || 'Unspecified';
+    if(!vendorAgg[key]) vendorAgg[key] = {requisitions:0, certifiedAmount:0, amountPayable:0, paidAmount:0, outstanding:0};
+    const a = vendorAgg[key];
+    a.requisitions += 1; a.certifiedAmount += r.certifiedAmount; a.amountPayable += r.amountPayable; a.paidAmount += r.paidAmount; a.outstanding += r.outstanding;
+  });
+  const vendorRows = Object.entries(vendorAgg).map(([vendor,d])=>({ vendor, ...d }));
+  renderGenericTable({
+    theadId:'marketingExpenseVendorTheadRow', tbodyId:'marketingExpenseVendorTbody', tfootId:'marketingExpenseVendorTfootRow', searchId:'marketingExpenseVendorSearchBox',
+    searchFields:['vendor'],
+    sortStateKey:'marketingExpenseVendor',
+    columns:[
+      {key:'vendor', label:'Vendor', align:'left'},
+      {key:'requisitions', label:'Requisitions', fmt:fmtNum},
+      {key:'certifiedAmount', label:'Certified Amount', fmt:fmtINRCr},
+      {key:'amountPayable', label:'Amount Payable', fmt:fmtINRCr},
+      {key:'paidAmount', label:'Paid Amount', fmt:fmtINRCr},
+      {key:'outstanding', label:'Outstanding Amount', fmt:fmtINRCr},
+    ],
+    rowsSource: vendorRows,
+    defaultSort:{key:'outstanding', dir:-1},
+    totalsLabel:'vendors'
+  });
+  // ---- Requisition-wise (row-level) Expense Detail ----
+  renderGenericTable({
+    theadId:'marketingExpenseTheadRow', tbodyId:'marketingExpenseTbody', tfootId:'marketingExpenseTfootRow', searchId:'marketingExpenseSearchBox',
+    searchFields:['expenseSubType','vendor','invoiceNo'],
+    sortStateKey:'marketingExpenseDetail',
+    columns:[
+      {key:'expenseSubType', label:'Expense Sub Type', align:'left', noSum:true},
+      {key:'vendor', label:'Vendor', align:'left', noSum:true},
+      {key:'invoiceNo', label:'Invoice No', align:'left', noSum:true},
+      {key:'status', label:'Status', align:'left', noSum:true},
+      {key:'processedDate', label:'Processed Date', align:'left', noSum:true},
+      {key:'certifiedAmount', label:'Certified Amount', fmt:fmtINRCr},
+      {key:'amountPayable', label:'Amount Payable', fmt:fmtINRCr},
+      {key:'paidAmount', label:'Paid Amount', fmt:fmtINRCr},
+      {key:'outstanding', label:'Outstanding Amount', fmt:fmtINRCr},
+    ],
+    rowsSource: filtered,
+    defaultSort:{key:'outstanding', dir:-1},
+    totalsLabel:'requisitions'
+  });
+}
 /* ============ UNSOLD: LOCATION WISE & PROPERTY WISE (within Sales > Available) ============ */
 function renderLocationWiseTable(){
   const tbody = document.getElementById('locationWiseTbody');
@@ -3584,6 +3945,21 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
       'Net Amount (₹)': r.netAmount, 'Paid Amount (₹)': r.paidAmount, 'Amount Outstanding (₹)': r.amountOutstanding,
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(marketingExport), 'Marketing');
+  }
+  // 11. Marketing Expenses — Expense Requisition Detail (every requisition, unfiltered). Cancelled and
+  // rejected requisitions are already excluded — they never entered RAW.expenseRequisitionRecords.
+  if(RAW.expenseRequisitionRecords.length){
+    const marketingExpenseExport = RAW.expenseRequisitionRecords.map(r=>({
+      'Company': r.company, 'Department': r.department, 'Project': r.project || 'Brand / Corporate',
+      'Expense Sub Type': r.expenseSubType, 'Vendor': r.vendor, 'Type Of Pay': r.typeOfPay,
+      'Expense Id': r.expenseId, 'Invoice No': r.invoiceNo, 'Invoice Date': r.invoiceDate,
+      'Certified Amount (₹)': r.certifiedAmount, 'Total Addition Tax (₹)': r.addTax, 'Gross Amount (₹)': r.grossAmount,
+      'Advance Adjusted (₹)': r.advanceAdjusted, 'Net Certified Amount (₹)': r.netCertifiedAmount,
+      'Total Deduction Tax (₹)': r.dedTax, 'Debit Note Adjusted (₹)': r.debitNoteAdjusted,
+      'Amount Payable (₹)': r.amountPayable, 'Paid Amount (₹)': r.paidAmount, 'Outstanding (₹)': r.outstanding,
+      'Mode Of Payment': r.modeOfPayment, 'Processed Date': r.processedDate, 'Status': r.status, 'Remarks': r.remarks,
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(marketingExpenseExport), 'Marketing Expenses');
   }
   XLSX.writeFile(wb, 'MP_Developers_All_Data_' + new Date().toISOString().slice(0,10) + '.xlsx');
 });
