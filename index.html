@@ -447,6 +447,18 @@
         <div class="hint">Adds Marketing Expenses — certified/gross amounts, advance adjusted, amount payable, paid &amp; outstanding by expense type and vendor</div>
         <input type="file" id="file9" accept=".xlsx">
       </label>
+      <label class="drop" id="drop10">
+        <div class="label">10 &middot; Promotion Budget Detail Report <span style="text-transform:none;font-weight:400;">(optional)</span></div>
+        <div class="fname" id="fname10">Click to choose file (.xlsx)</div>
+        <div class="hint">Adds Marketing Budget vs Actuals — revised budget, amount spent &amp; remaining by promotion activity</div>
+        <input type="file" id="file10" accept=".xlsx">
+      </label>
+      <label class="drop" id="drop11">
+        <div class="label">11 &middot; Expense Budget v/s Actuals Report <span style="text-transform:none;font-weight:400;">(optional)</span></div>
+        <div class="fname" id="fname11">Click to choose file (.xlsx)</div>
+        <div class="hint">Adds Marketing Budget vs Actuals — budget allocated &amp; actual payment by expense sub type</div>
+        <input type="file" id="file11" accept=".xlsx">
+      </label>
     </div>
     <div class="btn-row">
       <button class="btn btn-primary" id="genBtn" disabled>Generate &amp; publish dashboard</button>
@@ -742,6 +754,46 @@
           </div>
         </div>
       </div>
+      <div class="section-title group"><h2>Marketing Budget vs Actuals</h2><div class="line"></div></div>
+      <p class="chart-note" style="margin:4px 2px 14px;">Combines the Promotion Budget Detail Report and the Expense Budget v/s Actuals Report. Each report's own operative budget figure is used — Revised Budgeted Amount for Promotion, Budget Allocated Amount As on Date for Expense. Neither report carries reliable per-row Project data, so the Project filter does not narrow this section; Financial Year and Month still apply via each report's own date.</p>
+      <div class="kpi-grid" id="kpiGridMarketingBudget"></div>
+      <div class="chart-grid">
+        <div class="table-card">
+          <div class="table-scroll">
+            <table id="marketingBudgetFYTable">
+              <thead><tr><th style="text-align:left">Financial Year</th><th>Budget Amount</th><th>Amount Spent</th><th>Amount Remaining</th></tr></thead>
+              <tbody id="marketingBudgetFYTbody"></tbody>
+              <tfoot><tr id="marketingBudgetFYTfootRow"></tr></tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="section-title"><h2>Promotion Budget by Activity</h2><div class="line"></div></div>
+      <div class="table-toolbar">
+        <input type="text" id="marketingPromoBudgetSearchBox" placeholder="Search promotion activity...">
+      </div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="marketingPromoBudgetTable">
+            <thead><tr id="marketingPromoBudgetTheadRow"></tr></thead>
+            <tbody id="marketingPromoBudgetTbody"></tbody>
+            <tfoot><tr id="marketingPromoBudgetTfootRow"></tr></tfoot>
+          </table>
+        </div>
+      </div>
+      <div class="section-title"><h2>Expense Budget by Type</h2><div class="line"></div></div>
+      <div class="table-toolbar">
+        <input type="text" id="marketingExpenseBudgetSearchBox" placeholder="Search expense sub type...">
+      </div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="marketingExpenseBudgetTable">
+            <thead><tr id="marketingExpenseBudgetTheadRow"></tr></thead>
+            <tbody id="marketingExpenseBudgetTbody"></tbody>
+            <tfoot><tr id="marketingExpenseBudgetTfootRow"></tr></tfoot>
+          </table>
+        </div>
+      </div>
       <div class="section-title"><h2>Project-wise Marketing Detail</h2><div class="line"></div></div>
       <div class="table-toolbar">
         <input type="text" id="marketingProjectSearchBox" placeholder="Search project name...">
@@ -881,7 +933,7 @@ const db = firebase.firestore();
 // Firestore caps each document at 1MiB. The combined RAW data can exceed that (it's already
 // ~1.4MB with 5 reports loaded), so each RAW.* array is stored as its own small document instead
 // of one big one — every individual piece has comfortable headroom to keep growing month to month.
-const RAW_KEYS = ['customerRecords','stockDict','stockUnitRecords','agreementRecords','collectionReceiptRecords','bookingRecords','outstandingRecords','cancellationRecords','promotionRecords','expenseRequisitionRecords'];
+const RAW_KEYS = ['customerRecords','stockDict','stockUnitRecords','agreementRecords','collectionReceiptRecords','bookingRecords','outstandingRecords','cancellationRecords','promotionRecords','expenseRequisitionRecords','promotionBudgetRecords','expenseBudgetRecords'];
 // Project -> physical location & property type, as supplied by MP Developers (not derivable from
 // any ERP report). Projects not in this list show under "Unmapped" in the Location Wise view
 // rather than being silently dropped or guessed at — flag those to be added here as they come up.
@@ -1073,7 +1125,7 @@ async function tryLoadPublishedData(){
     // A dashboard published before a given RAW key existed (e.g. promotionRecords, added for the
     // Marketing module) won't have that chunk doc at all — treat it as "not uploaded yet" rather
     // than failing the whole load, so older published dashboards keep working until MIS re-publishes.
-    const OPTIONAL_KEYS_IF_MISSING = ['promotionRecords', 'expenseRequisitionRecords'];
+    const OPTIONAL_KEYS_IF_MISSING = ['promotionRecords', 'expenseRequisitionRecords', 'promotionBudgetRecords', 'expenseBudgetRecords'];
     for(let i=0;i<RAW_KEYS.length;i++){
       if(!chunkDocs[i].exists){
         if(OPTIONAL_KEYS_IF_MISSING.includes(RAW_KEYS[i])){ newRAW[RAW_KEYS[i]] = []; continue; }
@@ -1329,7 +1381,7 @@ document.querySelectorAll('.module-btn').forEach(btn=>{
     window.scrollTo({top:0, behavior:'smooth'});
   });
 });
-let file1Data = null, file2Data = null, file3Data = null, file4Data = null, file5Data = null, file6Data = null, file7Data = null, file8Data = null, file9Data = null;
+let file1Data = null, file2Data = null, file3Data = null, file4Data = null, file5Data = null, file6Data = null, file7Data = null, file8Data = null, file9Data = null, file10Data = null, file11Data = null;
 // RAW = unfiltered per-record data, parsed once when files load. Everything the dashboard renders
 // is derived from RAW by applyFiltersAndRender() so the Project / Financial Year / Month filters
 // can recompute every KPI, chart and table consistently instead of just hiding rows visually.
@@ -1348,6 +1400,10 @@ let RAW = {
                                 // certified/gross/advance-adjusted/net-certified/payable/outstanding amounts — see
                                 // Marketing Expenses section. Cancelled and rejected requisitions are dropped at
                                 // parse time (see parseExpenseRequisitionReport), so every record here is a real transaction.
+  promotionBudgetRecords: [],  // Promotion Budget Detail Report: activity, budget id, from/to date, budgeted/revised
+                                // budgeted/spent/remaining amounts — see Marketing Budget section.
+  expenseBudgetRecords: [],    // Expense Budget v/s Actuals Report: company, expense sub type, budget period,
+                                // budget allocated/actual payment amounts — see Marketing Budget section.
 };
 let filterState = { project: '', fy: '', month: '' };
 // project scopes Promotion Payments only; fy/month scope both Promotion Payments and Expense
@@ -1410,6 +1466,8 @@ wireDrop('drop6','file6','fname6', f=>{ file6Data = f; checkReady(); });
 wireDrop('drop7','file7','fname7', f=>{ file7Data = f; checkReady(); });
 wireDrop('drop8','file8','fname8', f=>{ file8Data = f; checkReady(); });
 wireDrop('drop9','file9','fname9', f=>{ file9Data = f; checkReady(); });
+wireDrop('drop10','file10','fname10', f=>{ file10Data = f; checkReady(); });
+wireDrop('drop11','file11','fname11', f=>{ file11Data = f; checkReady(); });
 function checkReady(){
   document.getElementById('genBtn').disabled = !(file1Data && file2Data);
 }
@@ -1465,6 +1523,18 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
     } else {
       RAW.expenseRequisitionRecords = [];
     }
+    if(file10Data){
+      const wb10 = await readFileAsWB(file10Data);
+      RAW.promotionBudgetRecords = parsePromotionBudgetReport(wb10);
+    } else {
+      RAW.promotionBudgetRecords = [];
+    }
+    if(file11Data){
+      const wb11 = await readFileAsWB(file11Data);
+      RAW.expenseBudgetRecords = parseExpenseBudgetReport(wb11);
+    } else {
+      RAW.expenseBudgetRecords = [];
+    }
     updateSectionVisibility();
     filterState = { project: '', fy: '', month: '' };
     marketingFilterState = { project: '', fy: '', month: '' };
@@ -1473,7 +1543,7 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
     populateMarketingFilterOptions();
     populateMarketingExpenseFilterOptions();
     applyFiltersAndRender();
-    const fileNames = [file1Data.name, file2Data.name, file3Data && file3Data.name, file4Data && file4Data.name, file5Data && file5Data.name, file6Data && file6Data.name, file7Data && file7Data.name, file8Data && file8Data.name, file9Data && file9Data.name].filter(Boolean);
+    const fileNames = [file1Data.name, file2Data.name, file3Data && file3Data.name, file4Data && file4Data.name, file5Data && file5Data.name, file6Data && file6Data.name, file7Data && file7Data.name, file8Data && file8Data.name, file9Data && file9Data.name, file10Data && file10Data.name, file11Data && file11Data.name].filter(Boolean);
     document.getElementById('uploadCard').style.display='none';
     document.getElementById('loadedBar').style.display='flex';
     document.getElementById('loadedNames').textContent = 'Loaded ' + fileNames.join(' + ');
@@ -2214,6 +2284,98 @@ function parseExpenseRequisitionReport(wb){
   }
   return records;
 }
+// ---- Promotion Budget Detail Report (Marketing Budget) ----
+// One row per (Promotion Activity × budget period, usually ~1 month) — a genuine per-row Budget Id
+// distinguishes real data rows from the report's single trailing "Total" row (Budget Id blank there),
+// same subtotal-row guard style as every other report here. "Revised Budgeted Amount" (not the original
+// "Budgeted Amount") is the report's own operative budget figure — verified: the Total row's Amount
+// Remaining (74731005.75) equals Revised Budgeted Amount (412932419.01) minus Amount Spent
+// (338201413.26) exactly, so every KPI/table below is built from Revised Budgeted Amount, matching how
+// the report itself defines "remaining". No Project column exists in this report at all — every row is
+// company-wide by Promotion Activity, so the Project filter never narrows this data; From Date still
+// lets the Financial Year / Month filter narrow it like every other Marketing dataset.
+function parsePromotionBudgetReport(wb){
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = sheetToRows(ws);
+  let headerIdx = rows.findIndex(r => normalizeHeader(r[0]) === 'Promotion Activity' && r.some(c => normalizeHeader(c) === 'Budget Id'));
+  if(headerIdx < 0) headerIdx = 7;
+  const headerRow = rows[headerIdx] || [];
+  const col = {};
+  headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
+  const at = (label, fallback) => col[label] !== undefined ? col[label] : fallback;
+  const activityIdx = at('Promotion Activity', 0);
+  const budgetIdIdx = at('Budget Id', 1);
+  const activityIdIdx = at('Activity Id', 4);
+  const fromDateIdx = at('From Date', 5);
+  const toDateIdx = at('To Date', 6);
+  const budgetedIdx = at('Budgeted Amount', 7);
+  const revisedIdx = at('Revised Budgeted Amount', 8);
+  const spentIdx = at('Amount Spent', 9);
+  const remainingIdx = at('Amount Remaining', 11);
+  const num = v => typeof v === 'number' ? v : (v ? (Number(String(v).replace(/[^0-9.-]/g,'')) || 0) : 0);
+  const records = [];
+  for(let i=headerIdx+1; i<rows.length; i++){
+    const r = rows[i];
+    if(!r) continue;
+    const budgetId = r[budgetIdIdx];
+    if(typeof budgetId !== 'number') continue; // the trailing "Total" row and any blank rows
+    records.push({
+      activity: r[activityIdx] || 'Unspecified', budgetId, activityId: r[activityIdIdx] || '',
+      fromDate: r[fromDateIdx] || '', toDate: r[toDateIdx] || '',
+      budgetedAmount: num(r[budgetedIdx]), revisedBudgetedAmount: num(r[revisedIdx]),
+      amountSpent: num(r[spentIdx]), amountRemaining: num(r[remainingIdx]),
+    });
+  }
+  return records;
+}
+// ---- Expense Budget v/s Actual Payments Report (Marketing Budget) ----
+// Grouped by legal Company entity, each with its own set of Expense Sub Type rows followed by a
+// "Company wise Total :" subtotal row (the label sits in the Expense Sub Type column itself) — skip any
+// row whose Expense Sub Type is blank or contains "Total", the same guard style as every other report
+// here. Verified: both companies' Budget Allocated Amount sums (24270000 and 38958000) exactly match
+// their own "Company wise Total" rows. Budget Period is a text range per row (e.g. "Apr 01, 2026 - Mar
+// 31, 2027") rather than a real date column — its Financial Year is derived from the range's start date
+// so the FY filter can still narrow this data; there's no month-level granularity in this report, so the
+// Month filter does not narrow it further. Project Name is always blank in this report, so the Project
+// filter never narrows it either.
+function parseExpenseBudgetReport(wb){
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = sheetToRows(ws);
+  let headerIdx = rows.findIndex(r => normalizeHeader(r[0]) === 'Company Name' && r.some(c => normalizeHeader(c) === 'Expense Sub Type'));
+  if(headerIdx < 0) headerIdx = 2;
+  const headerRow = rows[headerIdx] || [];
+  const col = {};
+  headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
+  const at = (label, fallback) => col[label] !== undefined ? col[label] : fallback;
+  const companyIdx = at('Company Name', 0);
+  const departmentIdx = at('Department Name', 1);
+  const projectIdx = at('Project Name', 4);
+  const budgetPeriodIdx = at('Budget Period', 5);
+  const expenseTypeIdx = at('Expense Type', 6);
+  const expenseSubTypeIdx = at('Expense Sub Type', 7);
+  const budgetAllocatedIdx = at('Budget Allocated Amount As on Date', 8);
+  const actualPaymentIdx = at('Actual Payment Amount As on Date', 10);
+  const num = v => typeof v === 'number' ? v : (v ? (Number(String(v).replace(/[^0-9.-]/g,'')) || 0) : 0);
+  const records = [];
+  for(let i=headerIdx+1; i<rows.length; i++){
+    const r = rows[i];
+    if(!r) continue;
+    const subTypeRaw = r[expenseSubTypeIdx];
+    if(subTypeRaw === null || subTypeRaw === '') continue; // blank separator rows
+    const subType = (subTypeRaw+'').trim();
+    if(!subType || subType.toLowerCase().includes('total')) continue; // "Company wise Total :" rows
+    const budgetPeriod = r[budgetPeriodIdx] || '';
+    // "Apr 01, 2026 - Mar 31, 2027" — the text before " - " is the period's start date.
+    const periodStart = (budgetPeriod+'').split(' - ')[0] || '';
+    records.push({
+      company: r[companyIdx] || '', department: r[departmentIdx] || '',
+      project: r[projectIdx] ? normalizeProjectName(r[projectIdx]) : '',
+      budgetPeriod, periodStart, expenseType: r[expenseTypeIdx] || '', expenseSubType: subType,
+      budgetAllocated: num(r[budgetAllocatedIdx]), actualPayment: num(r[actualPaymentIdx]),
+    });
+  }
+  return records;
+}
 function buildMasterTable(discount, stock, value){
   const allProjects = new Set([...Object.keys(stock), ...Object.keys(value), ...Object.keys(discount)]);
   const master = [];
@@ -2598,12 +2760,14 @@ document.getElementById('filterMarketingFY').addEventListener('change', function
   renderMarketingPage();
   renderMarketingExpensePage();
   renderMarketingKPIs();
+  renderMarketingBudgetPage();
 });
 document.getElementById('filterMarketingMonth').addEventListener('change', function(){
   marketingFilterState.month = this.value;
   renderMarketingPage();
   renderMarketingExpensePage();
   renderMarketingKPIs();
+  renderMarketingBudgetPage();
 });
 document.getElementById('filterMarketingExpenseType').addEventListener('change', function(){
   marketingExpenseFilterState.subType = this.value;
@@ -2621,6 +2785,7 @@ document.getElementById('filterMarketingClear').addEventListener('click', functi
   renderMarketingPage();
   renderMarketingExpensePage();
   renderMarketingKPIs();
+  renderMarketingBudgetPage();
 });
 /* ============ FORMATTING ============ */
 function fmtINRCr(n){
@@ -2657,6 +2822,7 @@ function renderAll(){
   renderMarketingPage();
   renderMarketingExpensePage();
   renderMarketingKPIs();
+  renderMarketingBudgetPage();
 }
 function grandTotals(){
   return masterData.reduce((acc,m)=>{
@@ -3754,6 +3920,122 @@ function renderMarketingExpensePage(){
     rowsSource: filtered,
     defaultSort:{key:'outstanding', dir:-1},
     totalsLabel:'requisitions'
+  });
+}
+/* ============ MARKETING BUDGET (Promotion Budget Detail + Expense Budget v/s Actuals) ============ */
+// Independent of both the Sales/CRM filter bar and the two report-specific filter states above — neither
+// budget report has usable per-row Project or Expense-Sub-Type data to filter by, so this section only
+// ever responds to the Financial Year / Month filter (matchesMarketingFYMonth), never Project.
+function renderMarketingBudgetPage(){
+  const promoAll = RAW.promotionBudgetRecords;
+  const expAll = RAW.expenseBudgetRecords;
+  if(!promoAll.length && !expAll.length){
+    document.getElementById('kpiGridMarketingBudget').innerHTML =
+      '<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:18px 4px;font-size:12.5px;line-height:1.5;">Upload the Promotion Budget Detail Report and/or the Expense Budget v/s Actuals Report (files 10 &amp; 11 on the upload panel) to see Marketing Budget vs Actuals here.</div>';
+    renderFYDataTable('marketingBudgetFYTbody', 'marketingBudgetFYTfootRow', [], [{key:'budgetAmount'},{key:'spentAmount'},{key:'remainingAmount'}], 'Upload a Marketing Budget report to see this table.');
+    return; // detail tables stay blank until at least one budget report is uploaded
+  }
+  // Budget by Financial Year — always the full timeline (ignores the FY/Month filter itself), matching
+  // every other "by Financial Year" table in this dashboard: narrowing it to one FY would leave a single
+  // row. Promotion Budget is bucketed by From Date, Expense Budget by its Budget Period's start date.
+  const promoFYMap = {};
+  promoAll.forEach(rec=>{
+    const fy = financialYearOf(rec.fromDate);
+    if(!fy) return;
+    if(!promoFYMap[fy.label]) promoFYMap[fy.label] = {budgetAmount:0, spentAmount:0, sortKey:fy.sortKey};
+    promoFYMap[fy.label].budgetAmount += rec.revisedBudgetedAmount;
+    promoFYMap[fy.label].spentAmount += rec.amountSpent;
+  });
+  const expFYMap = {};
+  expAll.forEach(rec=>{
+    const fy = financialYearOf(rec.periodStart);
+    if(!fy) return;
+    if(!expFYMap[fy.label]) expFYMap[fy.label] = {budgetAmount:0, spentAmount:0, sortKey:fy.sortKey};
+    expFYMap[fy.label].budgetAmount += rec.budgetAllocated;
+    expFYMap[fy.label].spentAmount += rec.actualPayment;
+  });
+  const mergedFY = {};
+  [promoFYMap, expFYMap].forEach(m=>{
+    Object.entries(m).forEach(([label,d])=>{
+      if(!mergedFY[label]) mergedFY[label] = {label, budgetAmount:0, spentAmount:0, sortKey:d.sortKey};
+      mergedFY[label].budgetAmount += d.budgetAmount;
+      mergedFY[label].spentAmount += d.spentAmount;
+    });
+  });
+  const budgetFYData = Object.values(mergedFY)
+    .map(d=>({...d, remainingAmount: d.budgetAmount - d.spentAmount}))
+    .sort((a,b)=>a.sortKey-b.sortKey);
+  renderFYDataTable('marketingBudgetFYTbody', 'marketingBudgetFYTfootRow', budgetFYData,
+    [{key:'budgetAmount', fmt:fmtINRCr}, {key:'spentAmount', fmt:fmtINRCr}, {key:'remainingAmount', fmt:fmtINRCr}],
+    'No budget data with a usable date is available.');
+  // KPI tiles and the two detail tables below DO respect the Financial Year / Month filter, like the
+  // rest of Marketing's charts/tables (matchesMarketingFYMonth checks From Date for Promotion Budget,
+  // the Budget Period's start date for Expense Budget).
+  const promoFiltered = promoAll.filter(r => matchesMarketingFYMonth(r.fromDate));
+  const expFiltered = expAll.filter(r => matchesMarketingFYMonth(r.periodStart));
+  const promoBudget = promoFiltered.reduce((a,r)=>a+r.revisedBudgetedAmount, 0);
+  const promoSpent = promoFiltered.reduce((a,r)=>a+r.amountSpent, 0);
+  const expBudget = expFiltered.reduce((a,r)=>a+r.budgetAllocated, 0);
+  const expSpent = expFiltered.reduce((a,r)=>a+r.actualPayment, 0);
+  const combinedBudget = promoBudget + expBudget;
+  const combinedSpent = promoSpent + expSpent;
+  const combinedRemaining = combinedBudget - combinedSpent;
+  const pctUtilized = combinedBudget ? (combinedSpent / combinedBudget * 100) : null;
+  document.getElementById('kpiGridMarketingBudget').innerHTML = [
+    {lbl:'Budget Amount', val: fmtINRCr(combinedBudget), sub: `Promotion ${fmtINRCr(promoBudget)} + Expense ${fmtINRCr(expBudget)}`},
+    {lbl:'Amount Spent', val: fmtINRCr(combinedSpent), sub: `Promotion ${fmtINRCr(promoSpent)} + Expense ${fmtINRCr(expSpent)}`},
+    {lbl:'Amount Remaining', val: fmtINRCr(combinedRemaining), sub: combinedRemaining < 0 ? 'Negative — spent beyond the allocated budget overall' : 'Budget Amount minus Amount Spent'},
+    {lbl:'% of Budget Utilized', val: fmtPct(pctUtilized), sub: 'Amount Spent as a share of Budget Amount'},
+  ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+  // ---- Promotion Budget by Activity ----
+  const promoActAgg = {};
+  promoFiltered.forEach(r=>{
+    const key = r.activity;
+    if(!promoActAgg[key]) promoActAgg[key] = {budgetAmount:0, spentAmount:0};
+    promoActAgg[key].budgetAmount += r.revisedBudgetedAmount;
+    promoActAgg[key].spentAmount += r.amountSpent;
+  });
+  const promoActRows = Object.entries(promoActAgg).map(([activity,d])=>({
+    activity, budgetAmount: d.budgetAmount, spentAmount: d.spentAmount, remainingAmount: d.budgetAmount - d.spentAmount,
+  }));
+  renderGenericTable({
+    theadId:'marketingPromoBudgetTheadRow', tbodyId:'marketingPromoBudgetTbody', tfootId:'marketingPromoBudgetTfootRow', searchId:'marketingPromoBudgetSearchBox',
+    searchFields:['activity'],
+    sortStateKey:'marketingPromoBudget',
+    columns:[
+      {key:'activity', label:'Promotion Activity', align:'left'},
+      {key:'budgetAmount', label:'Revised Budget', fmt:fmtINRCr},
+      {key:'spentAmount', label:'Amount Spent', fmt:fmtINRCr},
+      {key:'remainingAmount', label:'Amount Remaining', fmt:fmtINRCr},
+    ],
+    rowsSource: promoActRows,
+    defaultSort:{key:'budgetAmount', dir:-1},
+    totalsLabel:'activities'
+  });
+  // ---- Expense Budget by Type ----
+  const expTypeAgg = {};
+  expFiltered.forEach(r=>{
+    const key = r.expenseSubType;
+    if(!expTypeAgg[key]) expTypeAgg[key] = {budgetAmount:0, spentAmount:0};
+    expTypeAgg[key].budgetAmount += r.budgetAllocated;
+    expTypeAgg[key].spentAmount += r.actualPayment;
+  });
+  const expTypeRows = Object.entries(expTypeAgg).map(([expenseSubType,d])=>({
+    expenseSubType, budgetAmount: d.budgetAmount, spentAmount: d.spentAmount, remainingAmount: d.budgetAmount - d.spentAmount,
+  }));
+  renderGenericTable({
+    theadId:'marketingExpenseBudgetTheadRow', tbodyId:'marketingExpenseBudgetTbody', tfootId:'marketingExpenseBudgetTfootRow', searchId:'marketingExpenseBudgetSearchBox',
+    searchFields:['expenseSubType'],
+    sortStateKey:'marketingExpenseBudget',
+    columns:[
+      {key:'expenseSubType', label:'Expense Sub Type', align:'left'},
+      {key:'budgetAmount', label:'Budget Allocated', fmt:fmtINRCr},
+      {key:'spentAmount', label:'Actual Payment', fmt:fmtINRCr},
+      {key:'remainingAmount', label:'Amount Remaining', fmt:fmtINRCr},
+    ],
+    rowsSource: expTypeRows,
+    defaultSort:{key:'budgetAmount', dir:-1},
+    totalsLabel:'expense types'
   });
 }
 /* ============ UNSOLD: LOCATION WISE & PROPERTY WISE (within Sales > Available) ============ */
