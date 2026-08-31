@@ -3269,9 +3269,9 @@ function renderBookingPage(){
 //   TDS Deducted (Promotion) + Deduction Tax/TDS (Expense)     -> "TDS Deducted"
 // Each side of a combined tile still respects that source's own filter (Project for Promotion,
 // Expense Sub Type for Expense) — the two filters are independent, so a combined total is simply
-// the sum of each side's already-filtered total. Fields with no counterpart in the other report
-// (Promotion Requests, Advance Paid, Surcharge, Expense Requisitions, Certified Amount, Amount
-// Payable) stay as their own single tile.
+// the sum of each side's already-filtered total. Advance Paid, Certified Amount, Amount Payable
+// and Surcharge were dropped from the grid at the user's request — only the record-count tiles
+// (Promotion Requests, Expense Requisitions) and the five combined-total tiles remain.
 function renderMarketingKPIs(){
   const promo = RAW.promotionRecords.filter(r =>
     (!marketingFilterState.project || r.project === marketingFilterState.project)
@@ -3281,19 +3281,14 @@ function renderMarketingKPIs(){
   );
   const psum = key => promo.reduce((a,r)=>a+(r[key]||0), 0);
   const esum = key => expense.reduce((a,r)=>a+(r[key]||0), 0);
-  // Advance Amount repeats per Request Id in the promotion report — always de-duplicate via
-  // uniqueAdvanceSum, never sum() it directly.
-  const advancePaidTotal = uniqueAdvanceSum(promo);
   const promoRequestCount = new Set(promo.map(r=>r.requestId)).size;
   const promoNetAmount = psum('netAmount');
   const promoPaid = psum('paidAmount');
   const promoOutstanding = psum('amountOutstanding');
   const promoTds = psum('tds');
   const promoAdvanceRecovered = psum('advanceRecovered');
-  const expenseCertified = esum('certifiedAmount');
   const expenseGross = esum('grossAmount');
   const expenseAdvAdjusted = esum('advanceAdjusted');
-  const expensePayable = esum('amountPayable');
   const expensePaid = esum('paidAmount');
   const expenseOutstanding = esum('outstanding');
   const expenseDedTax = esum('dedTax');
@@ -3305,10 +3300,6 @@ function renderMarketingKPIs(){
   document.getElementById('kpiGridMarketingAll').innerHTML = [
     {lbl:'Promotion Requests', val: fmtNum(promoRequestCount), sub: `${fmtNum(promo.length)} certificate / payment line items`},
     {lbl:'Expense Requisitions', val: fmtNum(expense.length), sub:'Genuine transactions only — cancelled and rejected already excluded'},
-    {lbl:'Advance Paid', val: fmtINRCr(advancePaidTotal), sub:'Total advance released against promotion requests'},
-    {lbl:'Certified Amount', val: fmtINRCr(expenseCertified), sub:'Certified value of marketing expense requisitions'},
-    {lbl:'Amount Payable', val: fmtINRCr(expensePayable), sub:'Net expense amount payable after advance adjustment and deductions'},
-    {lbl:'Surcharge', val: fmtINRCr(psum('surcharge')), sub:'Surcharge deducted on promotion payments'},
     {lbl:'Net / Gross Amount', val: fmtINRCr(combinedNetGross), sub: `Promotion Net Amount ${fmtINRCr(promoNetAmount)} + Expense Gross Amount ${fmtINRCr(expenseGross)}`},
     {lbl:'Advance Recovered / Adjusted', val: fmtINRCr(combinedAdvRecAdj), sub: `Promotion ${fmtINRCr(promoAdvanceRecovered)} + Expense ${fmtINRCr(expenseAdvAdjusted)}`},
     {lbl:'Paid Amount', val: fmtINRCr(combinedPaid), sub: `Promotion ${fmtINRCr(promoPaid)} + Expense ${fmtINRCr(expensePaid)}`},
