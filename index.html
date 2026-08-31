@@ -3262,16 +3262,18 @@ function renderBookingPage(){
 // Renders the single, combined "All Key Metrics" grid for the Marketing tab. Some fields mean the
 // same thing across the two source reports, so per the user's explicit mapping those are added
 // together into one tile instead of shown twice:
-//   Net Amount (Promotion) + Gross Amount (Expense)            -> "Net / Gross Amount"
-//   Advance Recovered (Promotion) + Advance Adjusted (Expense) -> "Advance Recovered / Adjusted"
-//   Promotion Paid Amount + Expense Paid Amount                -> "Paid Amount"
-//   Promotion Outstanding + Expense Outstanding                -> "Outstanding Amount"
-//   TDS Deducted (Promotion) + Deduction Tax/TDS (Expense)     -> "TDS Deducted"
+//   Net Amount (Promotion) + Certified Amount (Expense)    -> "Certified Amount"
+//     (Certified Amount, not Gross Amount, is the true match — both are the pre-tax certified /
+//     invoice value; Gross Amount already has tax additions layered on top of it.)
+//   Promotion Paid Amount + Expense Paid Amount            -> "Paid Amount"
+//   Promotion Outstanding + Expense Outstanding            -> "Outstanding Amount"
+//   TDS Deducted (Promotion) + Deduction Tax/TDS (Expense) -> "TDS Deducted"
 // Each side of a combined tile still respects that source's own filter (Project for Promotion,
 // Expense Sub Type for Expense) — the two filters are independent, so a combined total is simply
-// the sum of each side's already-filtered total. Advance Paid, Certified Amount, Amount Payable
-// and Surcharge were dropped from the grid at the user's request — only the record-count tiles
-// (Promotion Requests, Expense Requisitions) and the five combined-total tiles remain.
+// the sum of each side's already-filtered total. Advance Paid, Gross Amount, Advance Recovered,
+// Advance Adjusted, Amount Payable and Surcharge were dropped from the grid at the user's request —
+// only the record-count tiles (Promotion Requests, Expense Requisitions) and the four combined-total
+// tiles remain.
 function renderMarketingKPIs(){
   const promo = RAW.promotionRecords.filter(r =>
     (!marketingFilterState.project || r.project === marketingFilterState.project)
@@ -3286,22 +3288,20 @@ function renderMarketingKPIs(){
   const promoPaid = psum('paidAmount');
   const promoOutstanding = psum('amountOutstanding');
   const promoTds = psum('tds');
-  const promoAdvanceRecovered = psum('advanceRecovered');
-  const expenseGross = esum('grossAmount');
-  const expenseAdvAdjusted = esum('advanceAdjusted');
+  const expenseCertified = esum('certifiedAmount');
   const expensePaid = esum('paidAmount');
   const expenseOutstanding = esum('outstanding');
   const expenseDedTax = esum('dedTax');
-  const combinedNetGross = promoNetAmount + expenseGross;
-  const combinedAdvRecAdj = promoAdvanceRecovered + expenseAdvAdjusted;
+  // Certified Amount (not Gross Amount) is the true match for Promotion's Net Amount — both are the
+  // pre-tax certified/invoice value; Gross Amount already has tax additions layered on top of it.
+  const combinedCertified = promoNetAmount + expenseCertified;
   const combinedPaid = promoPaid + expensePaid;
   const combinedOutstanding = promoOutstanding + expenseOutstanding;
   const combinedTds = promoTds + expenseDedTax;
   document.getElementById('kpiGridMarketingAll').innerHTML = [
     {lbl:'Promotion Requests', val: fmtNum(promoRequestCount), sub: `${fmtNum(promo.length)} certificate / payment line items`},
     {lbl:'Expense Requisitions', val: fmtNum(expense.length), sub:'Genuine transactions only — cancelled and rejected already excluded'},
-    {lbl:'Net / Gross Amount', val: fmtINRCr(combinedNetGross), sub: `Promotion Net Amount ${fmtINRCr(promoNetAmount)} + Expense Gross Amount ${fmtINRCr(expenseGross)}`},
-    {lbl:'Advance Recovered / Adjusted', val: fmtINRCr(combinedAdvRecAdj), sub: `Promotion ${fmtINRCr(promoAdvanceRecovered)} + Expense ${fmtINRCr(expenseAdvAdjusted)}`},
+    {lbl:'Certified Amount', val: fmtINRCr(combinedCertified), sub: `Promotion Net Amount ${fmtINRCr(promoNetAmount)} + Expense Certified Amount ${fmtINRCr(expenseCertified)}`},
     {lbl:'Paid Amount', val: fmtINRCr(combinedPaid), sub: `Promotion ${fmtINRCr(promoPaid)} + Expense ${fmtINRCr(expensePaid)}`},
     {lbl:'Outstanding Amount', val: fmtINRCr(combinedOutstanding), sub: combinedOutstanding < 0 ? 'Negative — paid ahead of amount due overall' : `Promotion ${fmtINRCr(promoOutstanding)} + Expense ${fmtINRCr(expenseOutstanding)}`},
     {lbl:'TDS Deducted', val: fmtINRCr(combinedTds), sub: `Promotion ${fmtINRCr(promoTds)} + Expense ${fmtINRCr(expenseDedTax)}`},
