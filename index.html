@@ -685,24 +685,29 @@
         <p>Upload the Sales Promotion Payment Report and/or the Expense Requisition Details Report (files 8 &amp; 9 on the upload panel) and publish to see the Marketing dashboard here.</p>
       </div>
       <div id="marketingContent" style="display:none;">
-      <div class="section-title group"><h2>Promotion Payments</h2><div class="line"></div></div>
-      <div class="empty-state" id="marketingPromoEmptyState">
-        <p style="margin:0;">Upload the Sales Promotion Payment Report (file 8 on the upload panel) to see promotion payment details here.</p>
-      </div>
-      <div id="marketingPromoContent" style="display:none;">
       <div class="filter-bar">
         <div class="filter-field">
           <label for="filterMarketingProject">Project</label>
           <select id="filterMarketingProject"><option value="">All Projects</option></select>
         </div>
+        <div class="filter-field">
+          <label for="filterMarketingExpenseType">Expense Sub Type</label>
+          <select id="filterMarketingExpenseType"><option value="">All Types</option></select>
+        </div>
         <button class="btn btn-ghost" id="filterMarketingClear">Clear filters</button>
       </div>
+      <p class="chart-note" style="margin:4px 2px 14px;">Combines the Sales Promotion Payment Report and the Expense Requisition Details Report into a single Marketing overview. Cancelled and rejected expense requisitions are excluded from every expense figure below — they were never actually paid or owed.</p>
       <div class="section-title group"><h2>All Key Metrics</h2><div class="line"></div></div>
-      <div class="kpi-grid" id="kpiGridMarketing"></div>
-      <div class="section-title"><h2>Promotion Payments by Project &amp; Activity</h2><div class="line"></div></div>
+      <div class="kpi-grid">
+        <div id="kpiGridMarketing" style="display:contents"></div>
+        <div id="kpiGridMarketingExpense" style="display:contents"></div>
+      </div>
+      <div class="section-title"><h2>Marketing Spend by Project, Activity, Type &amp; Vendor</h2><div class="line"></div></div>
       <div class="chart-grid">
         <div class="chart-card"><h3>Net amount by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingProject"></canvas></div></div>
         <div class="chart-card"><h3>Outstanding amount by activity (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingActivity"></canvas></div></div>
+        <div class="chart-card"><h3>Certified amount by expense type (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingExpenseType"></canvas></div></div>
+        <div class="chart-card"><h3>Outstanding amount by vendor (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingExpenseVendor"></canvas></div></div>
       </div>
       <div class="chart-grid one" style="margin-top:18px;">
         <div class="chart-card"><h3>Promotion payments by financial year (₹ Cr, by processed date)</h3><div class="wrap tall"><canvas id="chartMarketingFY"></canvas></div></div>
@@ -746,28 +751,6 @@
           </table>
         </div>
       </div>
-      </div>
-      <!-- end marketingPromoContent -->
-      <div class="section-title group"><h2>Marketing Expenses (Requisitions)</h2><div class="line"></div></div>
-      <div class="empty-state" id="marketingExpenseEmptyState">
-        <p style="margin:0;">Upload the Expense Requisition Details Report (file 9 on the upload panel) to see marketing expense details here.</p>
-      </div>
-      <div id="marketingExpenseContent" style="display:none;">
-      <div class="filter-bar">
-        <div class="filter-field">
-          <label for="filterMarketingExpenseType">Expense Sub Type</label>
-          <select id="filterMarketingExpenseType"><option value="">All Types</option></select>
-        </div>
-        <button class="btn btn-ghost" id="filterMarketingExpenseClear">Clear filters</button>
-      </div>
-      <p class="chart-note" style="margin:4px 2px 14px;">Cancelled and rejected requisitions are excluded from every figure below — they were never actually paid or owed.</p>
-      <div class="section-title group"><h2>All Key Metrics</h2><div class="line"></div></div>
-      <div class="kpi-grid" id="kpiGridMarketingExpense"></div>
-      <div class="section-title"><h2>Marketing Expenses by Type &amp; Vendor</h2><div class="line"></div></div>
-      <div class="chart-grid">
-        <div class="chart-card"><h3>Certified amount by expense type (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingExpenseType"></canvas></div></div>
-        <div class="chart-card"><h3>Outstanding amount by vendor (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingExpenseVendor"></canvas></div></div>
-      </div>
       <div class="section-title"><h2>Expense-Type-wise Detail</h2><div class="line"></div></div>
       <div class="table-toolbar">
         <input type="text" id="marketingExpenseTypeSearchBox" placeholder="Search expense sub type...">
@@ -807,8 +790,6 @@
           </table>
         </div>
       </div>
-      </div>
-      <!-- end marketingExpenseContent -->
       </div>
       <!-- end marketingContent -->
     </div>
@@ -1051,14 +1032,6 @@ function updateSectionVisibility(){
   const marketingContent = document.getElementById('marketingContent');
   if(marketingEmpty) marketingEmpty.style.display = hasMarketing ? 'none' : '';
   if(marketingContent) marketingContent.style.display = hasMarketing ? '' : 'none';
-  const marketingPromoEmpty = document.getElementById('marketingPromoEmptyState');
-  const marketingPromoContent = document.getElementById('marketingPromoContent');
-  if(marketingPromoEmpty) marketingPromoEmpty.style.display = hasMarketingPromo ? 'none' : '';
-  if(marketingPromoContent) marketingPromoContent.style.display = hasMarketingPromo ? '' : 'none';
-  const marketingExpenseEmpty = document.getElementById('marketingExpenseEmptyState');
-  const marketingExpenseContent = document.getElementById('marketingExpenseContent');
-  if(marketingExpenseEmpty) marketingExpenseEmpty.style.display = hasMarketingExpense ? 'none' : '';
-  if(marketingExpenseContent) marketingExpenseContent.style.display = hasMarketingExpense ? '' : 'none';
 }
 async function tryLoadPublishedData(){
   try{
@@ -2528,18 +2501,16 @@ document.getElementById('filterMarketingProject').addEventListener('change', fun
   marketingFilterState.project = this.value;
   renderMarketingPage();
 });
-document.getElementById('filterMarketingClear').addEventListener('click', function(){
-  marketingFilterState = { project:'' };
-  document.getElementById('filterMarketingProject').value = '';
-  renderMarketingPage();
-});
 document.getElementById('filterMarketingExpenseType').addEventListener('change', function(){
   marketingExpenseFilterState.subType = this.value;
   renderMarketingExpensePage();
 });
-document.getElementById('filterMarketingExpenseClear').addEventListener('click', function(){
+document.getElementById('filterMarketingClear').addEventListener('click', function(){
+  marketingFilterState = { project:'' };
   marketingExpenseFilterState = { subType:'' };
+  document.getElementById('filterMarketingProject').value = '';
   document.getElementById('filterMarketingExpenseType').value = '';
+  renderMarketingPage();
   renderMarketingExpensePage();
 });
 /* ============ FORMATTING ============ */
@@ -3292,8 +3263,12 @@ function renderBookingPage(){
 // Project filter, tracked in marketingFilterState.
 function renderMarketingPage(){
   if(!RAW.promotionRecords.length){
+    document.getElementById('kpiGridMarketing').innerHTML = '';
     destroyChart('marketingProject'); destroyChart('marketingActivity'); destroyChart('marketingFY');
-    return; // updateSectionVisibility() already shows the "no data" empty state instead of this content
+    chartEmptyMessage('chartMarketingProject', 'Upload the Sales Promotion Payment Report to see this chart.');
+    chartEmptyMessage('chartMarketingActivity', 'Upload the Sales Promotion Payment Report to see this chart.');
+    chartEmptyMessage('chartMarketingFY', 'Upload the Sales Promotion Payment Report to see this chart.');
+    return; // combined KPI grid / chart-grid still render the expense side; this just leaves the promotion side blank
   }
   const filtered = RAW.promotionRecords.filter(r =>
     (!marketingFilterState.project || r.project === marketingFilterState.project)
@@ -3313,8 +3288,8 @@ function renderMarketingPage(){
     {lbl:'Advance Paid', val: fmtINRCr(advancePaidTotal), sub:'Total advance released against requests'},
     {lbl:'Advance Recovered', val: fmtINRCr(advanceRecoveredTotal), sub: `${fmtINRCr(advanceOutstanding)} advance not yet recovered`},
     {lbl:'Net Amount', val: fmtINRCr(netAmountTotal), sub:'Total certified / invoice value processed'},
-    {lbl:'Paid Amount', val: fmtINRCr(paidTotal), sub:'Actually paid out to vendors / agents'},
-    {lbl:'Outstanding Amount', val: fmtINRCr(outstandingTotal), sub: outstandingTotal < 0 ? 'Negative — paid ahead of net amount overall' : 'Net amount certified but not yet paid'},
+    {lbl:'Promotion Paid Amount', val: fmtINRCr(paidTotal), sub:'Actually paid out to vendors / agents'},
+    {lbl:'Promotion Outstanding', val: fmtINRCr(outstandingTotal), sub: outstandingTotal < 0 ? 'Negative — paid ahead of net amount overall' : 'Net amount certified but not yet paid'},
     {lbl:'TDS Deducted', val: fmtINRCr(tdsTotal), sub:'Tax deducted at source'},
     {lbl:'Surcharge', val: fmtINRCr(sum('surcharge')), sub:'Surcharge deducted on promotion payments'},
   ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
@@ -3493,8 +3468,11 @@ function renderMarketingPage(){
 // reflects real transactions only.
 function renderMarketingExpensePage(){
   if(!RAW.expenseRequisitionRecords.length){
+    document.getElementById('kpiGridMarketingExpense').innerHTML = '';
     destroyChart('marketingExpenseType'); destroyChart('marketingExpenseVendor');
-    return; // updateSectionVisibility() already shows the "no data" empty state instead of this content
+    chartEmptyMessage('chartMarketingExpenseType', 'Upload the Expense Requisition Details Report to see this chart.');
+    chartEmptyMessage('chartMarketingExpenseVendor', 'Upload the Expense Requisition Details Report to see this chart.');
+    return; // combined KPI grid / chart-grid still render the promotion side; this just leaves the expense side blank
   }
   const filtered = RAW.expenseRequisitionRecords.filter(r =>
     (!marketingExpenseFilterState.subType || r.expenseSubType === marketingExpenseFilterState.subType)
@@ -3513,8 +3491,8 @@ function renderMarketingExpensePage(){
     {lbl:'Gross Amount', val: fmtINRCr(grossTotal), sub:'Certified amount including tax additions'},
     {lbl:'Advance Adjusted', val: fmtINRCr(advAdjustedTotal), sub:'Advances adjusted against these requisitions'},
     {lbl:'Amount Payable', val: fmtINRCr(payableTotal), sub:'Net amount payable after advance adjustment and deductions'},
-    {lbl:'Paid Amount', val: fmtINRCr(paidTotal), sub:'Actually paid out to vendors'},
-    {lbl:'Outstanding Amount', val: fmtINRCr(outstandingTotal), sub: outstandingTotal < 0 ? 'Negative — paid ahead of amount payable overall' : 'Payable but not yet paid'},
+    {lbl:'Expense Paid Amount', val: fmtINRCr(paidTotal), sub:'Actually paid out to vendors'},
+    {lbl:'Expense Outstanding', val: fmtINRCr(outstandingTotal), sub: outstandingTotal < 0 ? 'Negative — paid ahead of amount payable overall' : 'Payable but not yet paid'},
     {lbl:'Deduction Tax (TDS)', val: fmtINRCr(dedTaxTotal), sub:'Tax deducted on marketing expense payments'},
   ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
