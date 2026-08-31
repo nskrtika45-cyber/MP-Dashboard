@@ -697,11 +697,20 @@
           <select id="filterMarketingProject"><option value="">All Projects</option></select>
         </div>
         <div class="filter-field">
+          <label for="filterMarketingFY">Financial Year</label>
+          <select id="filterMarketingFY"><option value="">All Financial Years</option></select>
+        </div>
+        <div class="filter-field">
+          <label for="filterMarketingMonth">Month</label>
+          <select id="filterMarketingMonth"><option value="">All Months</option></select>
+        </div>
+        <div class="filter-field">
           <label for="filterMarketingExpenseType">Expense Sub Type</label>
           <select id="filterMarketingExpenseType"><option value="">All Types</option></select>
         </div>
         <button class="btn btn-ghost" id="filterMarketingClear">Clear filters</button>
       </div>
+      <span class="filter-note">Financial Year and Month filter both Promotion Payments and Expense Requisitions (by each report's own Processed Date). "Marketing by Financial Year" below always shows the full timeline for the current Project / Expense Sub Type selection.</span>
       <p class="chart-note" style="margin:4px 2px 14px;">Combines the Sales Promotion Payment Report and the Expense Requisition Details Report into a single Marketing overview. Cancelled and rejected expense requisitions are excluded from every expense figure below — they were never actually paid or owed.</p>
       <div class="section-title group"><h2>All Key Metrics</h2><div class="line"></div></div>
       <div class="kpi-grid" id="kpiGridMarketingAll"></div>
@@ -1076,7 +1085,7 @@ async function tryLoadPublishedData(){
     updateSectionVisibility();
     lastPublished = { at: meta.generatedAt, files: meta.sourceFiles || [] };
     filterState = { project:'', fy:'', month:'' };
-    marketingFilterState = { project: '' };
+    marketingFilterState = { project: '', fy: '', month: '' };
     marketingExpenseFilterState = { subType: '' };
     populateFilterOptions();
     populateMarketingFilterOptions();
@@ -1341,7 +1350,9 @@ let RAW = {
                                 // parse time (see parseExpenseRequisitionReport), so every record here is a real transaction.
 };
 let filterState = { project: '', fy: '', month: '' };
-let marketingFilterState = { project: '' };
+// project scopes Promotion Payments only; fy/month scope both Promotion Payments and Expense
+// Requisitions (each by its own Processed Date) — see matchesMarketingFYMonth().
+let marketingFilterState = { project: '', fy: '', month: '' };
 let marketingExpenseFilterState = { subType: '' };
 // Derived / currently-displayed data — render functions read these exactly as before.
 let masterData = [];
@@ -1456,7 +1467,7 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
     }
     updateSectionVisibility();
     filterState = { project: '', fy: '', month: '' };
-    marketingFilterState = { project: '' };
+    marketingFilterState = { project: '', fy: '', month: '' };
     marketingExpenseFilterState = { subType: '' };
     populateFilterOptions();
     populateMarketingFilterOptions();
@@ -2259,6 +2270,22 @@ function filterFull(records, dateField){
 function filterProjectOnly(records){
   return records.filter(r => matchesProject(r, filterState.project));
 }
+// Marketing's Financial Year / Month filter, shared by Promotion Payments and Expense Requisitions —
+// each record's own Processed Date is checked against marketingFilterState.fy/month. Used everywhere
+// in Marketing EXCEPT the "Marketing by Financial Year" tables themselves: matching the Sales/CRM
+// "by financial year" trend charts (which stay Project-only, see filterProjectOnly above), narrowing
+// a FY breakdown to a single FY would leave only one row, so those tables stay at the full timeline
+// for the current Project / Expense Sub Type selection.
+function matchesMarketingFYMonth(dateVal){
+  if(!marketingFilterState.fy && !marketingFilterState.month) return true;
+  const fy = financialYearOf(dateVal);
+  if(marketingFilterState.fy && (!fy || fy.label !== marketingFilterState.fy)) return false;
+  if(marketingFilterState.month){
+    const mk = monthKeyOf(dateVal);
+    if(!mk || mk.key !== marketingFilterState.month) return false;
+  }
+  return true;
+}
 function filterStockDict(dict, project){
   if(!project) return dict;
   return dict[project] ? {[project]: dict[project]} : {};
@@ -2309,7 +2336,9 @@ function populateMonthOptions(){
 }
 // Marketing has its own Project list (many "Brand Promotion Related" rows have no project at all —
 // company-wide spend) and its own filter state, kept separate from the Sales/CRM Project+FY+Month
-// filter above so switching one never resets or narrows the other.
+// filter above so switching one never resets or narrows the other. Financial Year and Month are
+// pooled from BOTH Promotion Payments and Expense Requisitions (each report's own Processed Date),
+// since those two controls filter both datasets at once — see matchesMarketingFYMonth().
 function populateMarketingFilterOptions(){
   const projSel = document.getElementById('filterMarketingProject');
   if(!projSel) return;
@@ -2318,6 +2347,31 @@ function populateMarketingFilterOptions(){
   const sortedProjects = [...projects].sort();
   projSel.innerHTML = '<option value="">All Projects</option>' + sortedProjects.map(p=>`<option value="${p}">${p}</option>`).join('');
   if(sortedProjects.includes(marketingFilterState.project)) projSel.value = marketingFilterState.project; else marketingFilterState.project = '';
+  const fySel = document.getElementById('filterMarketingFY');
+  const fySet = new Map(); // label -> sortKey
+  RAW.promotionRecords.forEach(r=>{ const fy = financialYearOf(r.processedDate); if(fy) fySet.set(fy.label, fy.sortKey); });
+  RAW.expenseRequisitionRecords.forEach(r=>{ const fy = financialYearOf(r.processedDate); if(fy) fySet.set(fy.label, fy.sortKey); });
+  const sortedFY = [...fySet.entries()].sort((a,b)=>a[1]-b[1]).map(e=>e[0]);
+  fySel.innerHTML = '<option value="">All Financial Years</option>' + sortedFY.map(f=>`<option value="${f}">${f}</option>`).join('');
+  if(sortedFY.includes(marketingFilterState.fy)) fySel.value = marketingFilterState.fy; else marketingFilterState.fy = '';
+  populateMarketingMonthOptions();
+}
+function populateMarketingMonthOptions(){
+  const monthSel = document.getElementById('filterMarketingMonth');
+  if(!monthSel) return;
+  const prevVal = monthSel.value;
+  const monthMap = new Map(); // key -> label
+  [RAW.promotionRecords, RAW.expenseRequisitionRecords].forEach(arr=>{
+    arr.forEach(r=>{
+      const mk = monthKeyOf(r.processedDate);
+      if(!mk) return;
+      if(marketingFilterState.fy && (!mk.fy || mk.fy.label !== marketingFilterState.fy)) return; // scope months to the chosen FY
+      if(!monthMap.has(mk.key)) monthMap.set(mk.key, mk.label);
+    });
+  });
+  const sorted = [...monthMap.entries()].sort((a,b)=> a[0].localeCompare(b[0]));
+  monthSel.innerHTML = '<option value="">All Months</option>' + sorted.map(([key,label])=>`<option value="${key}">${label}</option>`).join('');
+  if(sorted.some(([key])=>key===prevVal)) monthSel.value = prevVal; else marketingFilterState.month = '';
 }
 // Marketing Expenses has its own filter (by Expense Sub Type, since Project is populated on only a
 // small minority of expense rows) — kept independent of the Promotion Payments filter above.
@@ -2537,15 +2591,32 @@ document.getElementById('filterMarketingProject').addEventListener('change', fun
   renderMarketingPage();
   renderMarketingKPIs();
 });
+document.getElementById('filterMarketingFY').addEventListener('change', function(){
+  marketingFilterState.fy = this.value;
+  marketingFilterState.month = '';
+  populateMarketingMonthOptions();
+  renderMarketingPage();
+  renderMarketingExpensePage();
+  renderMarketingKPIs();
+});
+document.getElementById('filterMarketingMonth').addEventListener('change', function(){
+  marketingFilterState.month = this.value;
+  renderMarketingPage();
+  renderMarketingExpensePage();
+  renderMarketingKPIs();
+});
 document.getElementById('filterMarketingExpenseType').addEventListener('change', function(){
   marketingExpenseFilterState.subType = this.value;
   renderMarketingExpensePage();
   renderMarketingKPIs();
 });
 document.getElementById('filterMarketingClear').addEventListener('click', function(){
-  marketingFilterState = { project:'' };
+  marketingFilterState = { project:'', fy:'', month:'' };
   marketingExpenseFilterState = { subType:'' };
   document.getElementById('filterMarketingProject').value = '';
+  document.getElementById('filterMarketingFY').value = '';
+  populateMarketingMonthOptions();
+  document.getElementById('filterMarketingMonth').value = '';
   document.getElementById('filterMarketingExpenseType').value = '';
   renderMarketingPage();
   renderMarketingExpensePage();
@@ -3313,10 +3384,10 @@ function renderBookingPage(){
 // three combined-total tiles remain.
 function renderMarketingKPIs(){
   const promo = RAW.promotionRecords.filter(r =>
-    (!marketingFilterState.project || r.project === marketingFilterState.project)
+    (!marketingFilterState.project || r.project === marketingFilterState.project) && matchesMarketingFYMonth(r.processedDate)
   );
   const expense = RAW.expenseRequisitionRecords.filter(r =>
-    (!marketingExpenseFilterState.subType || r.expenseSubType === marketingExpenseFilterState.subType)
+    (!marketingExpenseFilterState.subType || r.expenseSubType === marketingExpenseFilterState.subType) && matchesMarketingFYMonth(r.processedDate)
   );
   const psum = key => promo.reduce((a,r)=>a+(r[key]||0), 0);
   const esum = key => expense.reduce((a,r)=>a+(r[key]||0), 0);
@@ -3369,9 +3440,13 @@ function renderMarketingPage(){
     renderFYDataTable('marketingFYTbody', 'marketingFYTfootRow', [], [{key:'netAmount'},{key:'paidAmount'}], 'Upload the Sales Promotion Payment Report to see this table.');
     return; // combined KPI grid (renderMarketingKPIs) / chart-grid still render the expense side; this just leaves the promotion side blank
   }
-  const filtered = RAW.promotionRecords.filter(r =>
+  // projectOnlyFiltered feeds only the "Marketing by Financial Year" table below — like the Sales/CRM
+  // FY trend charts, that table always shows the full timeline for the current Project selection,
+  // ignoring the FY/Month filter itself (narrowing it to one FY would leave a single row).
+  const projectOnlyFiltered = RAW.promotionRecords.filter(r =>
     (!marketingFilterState.project || r.project === marketingFilterState.project)
   );
+  const filtered = projectOnlyFiltered.filter(r => matchesMarketingFYMonth(r.processedDate));
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
   const brick = getComputedStyle(document.documentElement).getPropertyValue('--brick').trim();
@@ -3434,7 +3509,7 @@ function renderMarketingPage(){
   }
   // Promotion payments by financial year (Net Amount vs Paid Amount, grouped by the report's Processed
   // Date) — a data table rather than a chart, so the FY figures can be read precisely.
-  const marketingFYData = aggregateMarketingFY(filtered);
+  const marketingFYData = aggregateMarketingFY(projectOnlyFiltered);
   renderFYDataTable('marketingFYTbody', 'marketingFYTfootRow', marketingFYData,
     [{key:'netAmount', fmt:fmtINRCr}, {key:'paidAmount', fmt:fmtINRCr}],
     'No promotion payments with a usable processed date match the current filter.');
@@ -3536,9 +3611,13 @@ function renderMarketingExpensePage(){
     renderFYDataTable('marketingExpenseFYTbody', 'marketingExpenseFYTfootRow', [], [{key:'certifiedAmount'},{key:'paidAmount'}], 'Upload the Expense Requisition Details Report to see this table.');
     return; // combined KPI grid (renderMarketingKPIs) / chart-grid still render the promotion side; this just leaves the expense side blank
   }
-  const filtered = RAW.expenseRequisitionRecords.filter(r =>
+  // subTypeOnlyFiltered feeds only the "Marketing by Financial Year" table below — like the Sales/CRM
+  // FY trend charts, that table always shows the full timeline for the current Expense Sub Type
+  // selection, ignoring the FY/Month filter itself (narrowing it to one FY would leave a single row).
+  const subTypeOnlyFiltered = RAW.expenseRequisitionRecords.filter(r =>
     (!marketingExpenseFilterState.subType || r.expenseSubType === marketingExpenseFilterState.subType)
   );
+  const filtered = subTypeOnlyFiltered.filter(r => matchesMarketingFYMonth(r.processedDate));
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
   const brick = getComputedStyle(document.documentElement).getPropertyValue('--brick').trim();
@@ -3600,7 +3679,7 @@ function renderMarketingExpensePage(){
   }
   // Expense requisitions by financial year (Certified Amount vs Paid Amount, grouped by the report's
   // own Processed Date) — a data table rather than a chart, same as the Promotion FY table above.
-  const expenseFYData = aggregateExpenseFY(filtered);
+  const expenseFYData = aggregateExpenseFY(subTypeOnlyFiltered);
   renderFYDataTable('marketingExpenseFYTbody', 'marketingExpenseFYTfootRow', expenseFYData,
     [{key:'certifiedAmount', fmt:fmtINRCr}, {key:'paidAmount', fmt:fmtINRCr}],
     'No expense requisitions with a usable processed date match the current filter.');
