@@ -323,6 +323,12 @@
   .muted-cell{color:#B0B8C4;}
   .pos{color:var(--teal);}
   .neg{color:var(--brick);}
+  /* Payment-wise Promotion Detail (marketingTable) has 10 columns of long free-text fields (project,
+     activity, agent, certificate no, processed date) plus 5 amount columns — at the standard table
+     font-size and nowrap it overflows the page width and forces horizontal scrolling. Shrinking the
+     font and letting cells wrap instead of forcing one line lets the whole row fit within the page. */
+  #marketingTable{table-layout:fixed;font-size:10.5px;}
+  #marketingTable th,#marketingTable td{white-space:normal;word-break:break-word;padding:6px 7px;}
   tfoot td{padding:11px 14px;font-weight:700;background:var(--navy-pale);border-top:2px solid var(--navy);color:var(--navy);}
   .footer-row{display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:10px;}
   .footer-note{font-size:11.5px;color:var(--muted);}
@@ -3343,7 +3349,9 @@ function renderMarketingPage(){
       data:{ labels: byProject.map(p=>p.project), datasets:[{ label:'Net Amount', data: byProject.map(p=>p.value/1e7), backgroundColor: teal }] },
       options:{
         indexAxis:'y', responsive:true, maintainAspectRatio:false,
-        scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
+        // suggestedMax leaves headroom past the longest bar so its end-aligned ₹-value label has
+        // room to render fully instead of getting clipped at the chart's right edge.
+        scales:{ x:{ suggestedMax: Math.max(...byProject.map(p=>p.value/1e7))*1.25, title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
         plugins:{
           legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
           datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:11}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
@@ -3369,7 +3377,9 @@ function renderMarketingPage(){
       data:{ labels: byActivity.map(a=>a.activity), datasets:[{ label:'Outstanding Amount', data: byActivity.map(a=>a.value/1e7), backgroundColor: brick }] },
       options:{
         indexAxis:'y', responsive:true, maintainAspectRatio:false,
-        scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
+        // suggestedMax leaves headroom past the longest bar so its end-aligned ₹-value label has
+        // room to render fully instead of getting clipped at the chart's right edge.
+        scales:{ x:{ suggestedMax: Math.max(...byActivity.map(a=>a.value/1e7))*1.25, title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
         plugins:{
           legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
           datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:11}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
@@ -3524,7 +3534,9 @@ function renderMarketingExpensePage(){
       data:{ labels: byType.map(t=>t.type), datasets:[{ label:'Certified Amount', data: byType.map(t=>t.value/1e7), backgroundColor: teal }] },
       options:{
         indexAxis:'y', responsive:true, maintainAspectRatio:false,
-        scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
+        // suggestedMax leaves headroom past the longest bar so its end-aligned ₹-value label has
+        // room to render fully instead of getting clipped at the chart's right edge.
+        scales:{ x:{ suggestedMax: Math.max(...byType.map(t=>t.value/1e7))*1.25, title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
         plugins:{
           legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
           datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:11}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
@@ -3550,7 +3562,9 @@ function renderMarketingExpensePage(){
       data:{ labels: byVendor.map(v=>v.vendor), datasets:[{ label:'Outstanding Amount', data: byVendor.map(v=>v.value/1e7), backgroundColor: brick }] },
       options:{
         indexAxis:'y', responsive:true, maintainAspectRatio:false,
-        scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
+        // suggestedMax leaves headroom past the longest bar so its end-aligned ₹-value label has
+        // room to render fully instead of getting clipped at the chart's right edge.
+        scales:{ x:{ suggestedMax: Math.max(...byVendor.map(v=>v.value/1e7))*1.25, title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
         plugins:{
           legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
           datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:11}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
@@ -3691,6 +3705,13 @@ function renderGenericTable(opts){
 }
 function renderGenericTableBody(opts){
   const {tbodyId, tfootId, searchId, sortStateKey, columns, rowsSource, totalsLabel, filterSelectId, filterKey, searchFields} = opts;
+  // The first column is always this table's row label (project, agent, etc.) — used below both to
+  // style each row's label cell (left-aligned, sticky, bold — the .proj class) and to build the
+  // footer's "Total (N label)" cell. Using columns[0].key (rather than assuming the label column is
+  // literally named 'project') matters: a table whose label column has a different key — e.g. the
+  // Vendor-wise table's 'agent' — would otherwise never get the .proj class on its row cells either,
+  // silently losing left-alignment/sticky positioning for every row (not just the footer).
+  const labelKey = columns[0].key;
   const state = sortStates[sortStateKey];
   const search = (document.getElementById(searchId).value||'').trim().toLowerCase();
   const fields = searchFields || ['project'];
@@ -3709,18 +3730,11 @@ function renderGenericTableBody(opts){
   document.getElementById(tbodyId).innerHTML = rows.map(r=>{
     return '<tr>' + columns.map(c=>{
       const v = r[c.key];
-      const cls = c.key==='project' ? 'proj' : ((v===null || v==='') ? 'muted-cell' : '');
+      const cls = c.key===labelKey ? 'proj' : ((v===null || v==='') ? 'muted-cell' : '');
       const display = c.fmt ? c.fmt(v) : (v===''||v===null||v===undefined ? '—' : v);
       return `<td class="${cls}">${display}</td>`;
     }).join('') + '</tr>';
   }).join('');
-  // The first column is always this table's row label (project, agent, etc.) — its footer cell gets
-  // the "Total (N label)" text instead of a sum. Using columns[0].key here (rather than assuming the
-  // label column is literally named 'project') matters: a table whose label column has a different key
-  // — e.g. the Vendor-wise table's 'agent' — would otherwise fall through to the generic summing branch
-  // below, where `totals[c.key] += (r[c.key]||0)` string-concatenates every vendor name onto the number
-  // 0 instead of summing anything, corrupting the footer with runs of "0VendorNameVendorName...".
-  const labelKey = columns[0].key;
   const totals = {};
   columns.forEach(c=>{ if(c.key !== labelKey && !c.noSum && !c.key.toLowerCase().includes('rate')) totals[c.key] = 0; });
   rows.forEach(r=>{
