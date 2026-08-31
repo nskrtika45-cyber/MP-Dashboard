@@ -712,9 +712,26 @@
         <div class="chart-card"><h3>Certified amount by expense type (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingExpenseType"></canvas></div></div>
         <div class="chart-card"><h3>Outstanding amount by vendor (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingExpenseVendor"></canvas></div></div>
       </div>
-      <div class="chart-grid" style="margin-top:18px;">
-        <div class="chart-card"><h3>Promotion payments by financial year (₹ Cr, by processed date)</h3><div class="wrap tall"><canvas id="chartMarketingFY"></canvas></div></div>
-        <div class="chart-card"><h3>Expense requisitions by financial year (₹ Cr, by processed date)</h3><div class="wrap tall"><canvas id="chartMarketingExpenseFY"></canvas></div></div>
+      <div class="section-title"><h2>Marketing by Financial Year</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="table-card">
+          <div class="table-scroll">
+            <table id="marketingFYTable">
+              <thead><tr><th style="text-align:left">Financial Year</th><th>Net Amount</th><th>Paid Amount</th></tr></thead>
+              <tbody id="marketingFYTbody"></tbody>
+              <tfoot><tr id="marketingFYTfootRow"></tr></tfoot>
+            </table>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-scroll">
+            <table id="marketingExpenseFYTable">
+              <thead><tr><th style="text-align:left">Financial Year</th><th>Certified Amount</th><th>Paid Amount</th></tr></thead>
+              <tbody id="marketingExpenseFYTbody"></tbody>
+              <tfoot><tr id="marketingExpenseFYTfootRow"></tr></tfoot>
+            </table>
+          </div>
+        </div>
       </div>
       <div class="section-title"><h2>Project-wise Marketing Detail</h2><div class="line"></div></div>
       <div class="table-toolbar">
@@ -3288,13 +3305,12 @@ function renderBookingPage(){
 //     invoice value; Gross Amount already has tax additions layered on top of it.)
 //   Promotion Paid Amount + Expense Paid Amount            -> "Paid Amount"
 //   Promotion Outstanding + Expense Outstanding            -> "Outstanding Amount"
-//   TDS Deducted (Promotion) + Deduction Tax/TDS (Expense) -> "TDS Deducted"
 // Each side of a combined tile still respects that source's own filter (Project for Promotion,
 // Expense Sub Type for Expense) — the two filters are independent, so a combined total is simply
 // the sum of each side's already-filtered total. Advance Paid, Gross Amount, Advance Recovered,
-// Advance Adjusted, Amount Payable and Surcharge were dropped from the grid at the user's request —
-// only the record-count tiles (Promotion Requests, Expense Requisitions) and the four combined-total
-// tiles remain.
+// Advance Adjusted, Amount Payable, Surcharge and TDS Deducted were dropped from the grid at the
+// user's request — only the record-count tiles (Promotion Requests, Expense Requisitions) and the
+// three combined-total tiles remain.
 function renderMarketingKPIs(){
   const promo = RAW.promotionRecords.filter(r =>
     (!marketingFilterState.project || r.project === marketingFilterState.project)
@@ -3308,35 +3324,49 @@ function renderMarketingKPIs(){
   const promoNetAmount = psum('netAmount');
   const promoPaid = psum('paidAmount');
   const promoOutstanding = psum('amountOutstanding');
-  const promoTds = psum('tds');
   const expenseCertified = esum('certifiedAmount');
   const expensePaid = esum('paidAmount');
   const expenseOutstanding = esum('outstanding');
-  const expenseDedTax = esum('dedTax');
   // Certified Amount (not Gross Amount) is the true match for Promotion's Net Amount — both are the
   // pre-tax certified/invoice value; Gross Amount already has tax additions layered on top of it.
   const combinedCertified = promoNetAmount + expenseCertified;
   const combinedPaid = promoPaid + expensePaid;
   const combinedOutstanding = promoOutstanding + expenseOutstanding;
-  const combinedTds = promoTds + expenseDedTax;
   document.getElementById('kpiGridMarketingAll').innerHTML = [
     {lbl:'Promotion Requests', val: fmtNum(promoRequestCount), sub: `${fmtNum(promo.length)} certificate / payment line items`},
     {lbl:'Expense Requisitions', val: fmtNum(expense.length), sub:'Genuine transactions only — cancelled and rejected already excluded'},
     {lbl:'Certified Amount', val: fmtINRCr(combinedCertified), sub: `Promotion Net Amount ${fmtINRCr(promoNetAmount)} + Expense Certified Amount ${fmtINRCr(expenseCertified)}`},
     {lbl:'Paid Amount', val: fmtINRCr(combinedPaid), sub: `Promotion ${fmtINRCr(promoPaid)} + Expense ${fmtINRCr(expensePaid)}`},
     {lbl:'Outstanding Amount', val: fmtINRCr(combinedOutstanding), sub: combinedOutstanding < 0 ? 'Negative — paid ahead of amount due overall' : `Promotion ${fmtINRCr(promoOutstanding)} + Expense ${fmtINRCr(expenseOutstanding)}`},
-    {lbl:'TDS Deducted', val: fmtINRCr(combinedTds), sub: `Promotion ${fmtINRCr(promoTds)} + Expense ${fmtINRCr(expenseDedTax)}`},
   ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+}
+// Renders one Marketing "by Financial Year" table (a plain data table, not a chart — the FY trend
+// is a handful of rows, so a table reads the numbers precisely instead of asking the user to eyeball
+// bar heights). `cols` is [{key, fmt}] for the value columns after the FY label column; `data` comes
+// from aggregateMarketingFY / aggregateExpenseFY, already sorted oldest FY first.
+function renderFYDataTable(tbodyId, tfootRowId, data, cols, emptyMessage){
+  const tbody = document.getElementById(tbodyId);
+  const tfoot = document.getElementById(tfootRowId);
+  if(!data.length){
+    tbody.innerHTML = `<tr><td colspan="${cols.length+1}" class="muted-cell" style="text-align:center;">${emptyMessage}</td></tr>`;
+    tfoot.innerHTML = '';
+    return;
+  }
+  tbody.innerHTML = data.map(row=>
+    '<tr><td class="proj">'+row.label+'</td>' + cols.map(c=>`<td>${c.fmt(row[c.key])}</td>`).join('') + '</tr>'
+  ).join('');
+  tfoot.innerHTML = `<td class="proj">Total (${data.length} FY)</td>` +
+    cols.map(c=> `<td>${c.fmt(data.reduce((a,r)=>a+(r[c.key]||0),0))}</td>`).join('');
 }
 // Independent of the Sales/CRM Project+FY+Month filter bar — Marketing has its own Project list
 // (many rows are company-wide "Brand / Corporate" spend with no project at all) and its own
 // Project filter, tracked in marketingFilterState.
 function renderMarketingPage(){
   if(!RAW.promotionRecords.length){
-    destroyChart('marketingProject'); destroyChart('marketingActivity'); destroyChart('marketingFY');
+    destroyChart('marketingProject'); destroyChart('marketingActivity');
     chartEmptyMessage('chartMarketingProject', 'Upload the Sales Promotion Payment Report to see this chart.');
     chartEmptyMessage('chartMarketingActivity', 'Upload the Sales Promotion Payment Report to see this chart.');
-    chartEmptyMessage('chartMarketingFY', 'Upload the Sales Promotion Payment Report to see this chart.');
+    renderFYDataTable('marketingFYTbody', 'marketingFYTfootRow', [], [{key:'netAmount'},{key:'paidAmount'}], 'Upload the Sales Promotion Payment Report to see this table.');
     return; // combined KPI grid (renderMarketingKPIs) / chart-grid still render the expense side; this just leaves the promotion side blank
   }
   const filtered = RAW.promotionRecords.filter(r =>
@@ -3345,7 +3375,6 @@ function renderMarketingPage(){
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
   const brick = getComputedStyle(document.documentElement).getPropertyValue('--brick').trim();
-  const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
   // Net amount by project (top 15) — rows with no project ("Brand / Corporate" company-wide spend)
   // are grouped under "Brand / Corporate" so they aren't silently dropped from the chart.
   const byProjectMap = {};
@@ -3403,32 +3432,12 @@ function renderMarketingPage(){
       plugins:[ChartDataLabels]
     });
   }
-  // Promotion payments by financial year (Net Amount vs Paid Amount, grouped by the report's Processed Date)
+  // Promotion payments by financial year (Net Amount vs Paid Amount, grouped by the report's Processed
+  // Date) — a data table rather than a chart, so the FY figures can be read precisely.
   const marketingFYData = aggregateMarketingFY(filtered);
-  destroyChart('marketingFY');
-  if(marketingFYData.length === 0){
-    chartEmptyMessage('chartMarketingFY', 'No promotion payments with a usable processed date match the current filter.');
-  } else {
-    chartClearEmptyMessage('chartMarketingFY');
-    charts.marketingFY = new Chart(document.getElementById('chartMarketingFY'), {
-      type:'bar',
-      data:{
-        labels: marketingFYData.map(f=>f.label),
-        datasets:[
-          {label:'Net Amount', data: marketingFYData.map(f=>f.netAmount/1e7), backgroundColor: teal},
-          {label:'Paid Amount', data: marketingFYData.map(f=>f.paidAmount/1e7), backgroundColor: gold},
-        ]
-      },
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        scales:{ x:{ grid:{display:false} }, y:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} } },
-        plugins:{
-          legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}},
-          tooltip:{callbacks:{label: ctx=> ctx.dataset.label+': ₹'+ctx.raw.toFixed(2)+' Cr'}}
-        }
-      }
-    });
-  }
+  renderFYDataTable('marketingFYTbody', 'marketingFYTfootRow', marketingFYData,
+    [{key:'netAmount', fmt:fmtINRCr}, {key:'paidAmount', fmt:fmtINRCr}],
+    'No promotion payments with a usable processed date match the current filter.');
   // ---- Project-wise Marketing Detail ---- (Advance Paid de-duplicated by Request Id within each project;
   // safe because Project is constant across every row sharing a Request Id, verified against source data)
   const projectAgg = {};
@@ -3521,10 +3530,10 @@ function renderMarketingPage(){
 // reflects real transactions only.
 function renderMarketingExpensePage(){
   if(!RAW.expenseRequisitionRecords.length){
-    destroyChart('marketingExpenseType'); destroyChart('marketingExpenseVendor'); destroyChart('marketingExpenseFY');
+    destroyChart('marketingExpenseType'); destroyChart('marketingExpenseVendor');
     chartEmptyMessage('chartMarketingExpenseType', 'Upload the Expense Requisition Details Report to see this chart.');
     chartEmptyMessage('chartMarketingExpenseVendor', 'Upload the Expense Requisition Details Report to see this chart.');
-    chartEmptyMessage('chartMarketingExpenseFY', 'Upload the Expense Requisition Details Report to see this chart.');
+    renderFYDataTable('marketingExpenseFYTbody', 'marketingExpenseFYTfootRow', [], [{key:'certifiedAmount'},{key:'paidAmount'}], 'Upload the Expense Requisition Details Report to see this table.');
     return; // combined KPI grid (renderMarketingKPIs) / chart-grid still render the promotion side; this just leaves the expense side blank
   }
   const filtered = RAW.expenseRequisitionRecords.filter(r =>
@@ -3533,7 +3542,6 @@ function renderMarketingExpensePage(){
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
   const brick = getComputedStyle(document.documentElement).getPropertyValue('--brick').trim();
-  const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
   // Certified amount by expense sub type (top 15)
   const byTypeMap = {};
   filtered.forEach(r=>{
@@ -3591,32 +3599,11 @@ function renderMarketingExpensePage(){
     });
   }
   // Expense requisitions by financial year (Certified Amount vs Paid Amount, grouped by the report's
-  // own Processed Date) — same pattern as the Promotion payments FY chart above.
+  // own Processed Date) — a data table rather than a chart, same as the Promotion FY table above.
   const expenseFYData = aggregateExpenseFY(filtered);
-  destroyChart('marketingExpenseFY');
-  if(expenseFYData.length === 0){
-    chartEmptyMessage('chartMarketingExpenseFY', 'No expense requisitions with a usable processed date match the current filter.');
-  } else {
-    chartClearEmptyMessage('chartMarketingExpenseFY');
-    charts.marketingExpenseFY = new Chart(document.getElementById('chartMarketingExpenseFY'), {
-      type:'bar',
-      data:{
-        labels: expenseFYData.map(f=>f.label),
-        datasets:[
-          {label:'Certified Amount', data: expenseFYData.map(f=>f.certifiedAmount/1e7), backgroundColor: teal},
-          {label:'Paid Amount', data: expenseFYData.map(f=>f.paidAmount/1e7), backgroundColor: gold},
-        ]
-      },
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        scales:{ x:{ grid:{display:false} }, y:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} } },
-        plugins:{
-          legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}},
-          tooltip:{callbacks:{label: ctx=> ctx.dataset.label+': ₹'+ctx.raw.toFixed(2)+' Cr'}}
-        }
-      }
-    });
-  }
+  renderFYDataTable('marketingExpenseFYTbody', 'marketingExpenseFYTfootRow', expenseFYData,
+    [{key:'certifiedAmount', fmt:fmtINRCr}, {key:'paidAmount', fmt:fmtINRCr}],
+    'No expense requisitions with a usable processed date match the current filter.');
   // ---- Expense-Type-wise Detail ----
   const typeAgg = {};
   filtered.forEach(r=>{
