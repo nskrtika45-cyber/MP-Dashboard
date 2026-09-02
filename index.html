@@ -709,6 +709,10 @@
           <select id="filterMarketingProject"><option value="">All Projects</option></select>
         </div>
         <div class="filter-field">
+          <label for="filterMarketingActivityType">Activity Type</label>
+          <select id="filterMarketingActivityType"><option value="">All Activity Types</option></select>
+        </div>
+        <div class="filter-field">
           <label for="filterMarketingFY">Financial Year</label>
           <select id="filterMarketingFY"><option value="">All Financial Years</option></select>
         </div>
@@ -722,38 +726,10 @@
         </div>
         <button class="btn btn-ghost" id="filterMarketingClear">Clear filters</button>
       </div>
-      <span class="filter-note">Financial Year and Month filter both Promotion Payments and Expense Requisitions (by each report's own Processed Date). "Marketing by Financial Year" below always shows the full timeline for the current Project / Expense Sub Type selection.</span>
+      <span class="filter-note">Financial Year and Month filter both Promotion Payments and Expense Requisitions (by each report's own Processed Date); Activity Type filters Promotion Payments only. "Marketing by Financial Year" below always shows the full timeline for the current Project / Activity Type / Expense Sub Type selection.</span>
       <p class="chart-note" style="margin:4px 2px 14px;">Combines the Sales Promotion Payment Report and the Expense Requisition Details Report into a single Marketing overview. Cancelled and rejected expense requisitions are excluded from every expense figure below — they were never actually paid or owed.</p>
       <div class="section-title group"><h2>All Key Metrics</h2><div class="line"></div></div>
       <div class="kpi-grid" id="kpiGridMarketingAll"></div>
-      <div class="section-title"><h2>Marketing Spend by Project, Activity, Type &amp; Vendor</h2><div class="line"></div></div>
-      <div class="chart-grid">
-        <div class="chart-card"><h3>Net amount by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingProject"></canvas></div></div>
-        <div class="chart-card"><h3>Outstanding amount by activity (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingActivity"></canvas></div></div>
-        <div class="chart-card"><h3>Certified amount by expense type (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingExpenseType"></canvas></div></div>
-        <div class="chart-card"><h3>Outstanding amount by vendor (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingExpenseVendor"></canvas></div></div>
-      </div>
-      <div class="section-title"><h2>Marketing by Financial Year</h2><div class="line"></div></div>
-      <div class="chart-grid">
-        <div class="table-card">
-          <div class="table-scroll">
-            <table id="marketingFYTable">
-              <thead><tr><th style="text-align:left">Financial Year</th><th>Net Amount</th><th>Paid Amount</th></tr></thead>
-              <tbody id="marketingFYTbody"></tbody>
-              <tfoot><tr id="marketingFYTfootRow"></tr></tfoot>
-            </table>
-          </div>
-        </div>
-        <div class="table-card">
-          <div class="table-scroll">
-            <table id="marketingExpenseFYTable">
-              <thead><tr><th style="text-align:left">Financial Year</th><th>Certified Amount</th><th>Paid Amount</th></tr></thead>
-              <tbody id="marketingExpenseFYTbody"></tbody>
-              <tfoot><tr id="marketingExpenseFYTfootRow"></tr></tfoot>
-            </table>
-          </div>
-        </div>
-      </div>
       <div class="section-title group"><h2>Marketing Budget vs Actuals</h2><div class="line"></div></div>
       <p class="chart-note" style="margin:4px 2px 14px;">Combines the Promotion Budget Detail Report and the Expense Budget v/s Actuals Report. Each report's own operative budget figure is used — Revised Budgeted Amount for Promotion, Budget Allocated Amount As on Date for Expense. Neither report carries reliable per-row Project data, so the Project filter does not narrow this section; Financial Year and Month still apply via each report's own date.</p>
       <div class="kpi-grid" id="kpiGridMarketingBudget"></div>
@@ -794,6 +770,35 @@
           </table>
         </div>
       </div>
+      <div class="section-title group"><h2>Marketing Payments</h2><div class="line"></div></div>
+      <div class="section-title"><h2>Marketing Spend by Project, Activity, Type &amp; Vendor</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="chart-card"><h3>Net amount by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingProject"></canvas></div></div>
+        <div class="chart-card"><h3>Outstanding amount by activity type (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingActivity"></canvas></div></div>
+        <div class="chart-card"><h3>Certified amount by expense type (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingExpenseType"></canvas></div></div>
+        <div class="chart-card"><h3>Outstanding amount by vendor (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartMarketingExpenseVendor"></canvas></div></div>
+      </div>
+      <div class="section-title"><h2>Marketing by Financial Year</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="table-card">
+          <div class="table-scroll">
+            <table id="marketingFYTable">
+              <thead><tr><th style="text-align:left">Financial Year</th><th>Net Amount</th><th>Paid Amount</th></tr></thead>
+              <tbody id="marketingFYTbody"></tbody>
+              <tfoot><tr id="marketingFYTfootRow"></tr></tfoot>
+            </table>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-scroll">
+            <table id="marketingExpenseFYTable">
+              <thead><tr><th style="text-align:left">Financial Year</th><th>Certified Amount</th><th>Paid Amount</th></tr></thead>
+              <tbody id="marketingExpenseFYTbody"></tbody>
+              <tfoot><tr id="marketingExpenseFYTfootRow"></tr></tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
       <div class="section-title"><h2>Project-wise Marketing Detail</h2><div class="line"></div></div>
       <div class="table-toolbar">
         <input type="text" id="marketingProjectSearchBox" placeholder="Search project name...">
@@ -804,6 +809,19 @@
             <thead><tr id="marketingProjectTheadRow"></tr></thead>
             <tbody id="marketingProjectTbody"></tbody>
             <tfoot><tr id="marketingProjectTfootRow"></tr></tfoot>
+          </table>
+        </div>
+      </div>
+      <div class="section-title"><h2>Activity-Type-wise Marketing Detail</h2><div class="line"></div></div>
+      <div class="table-toolbar">
+        <input type="text" id="marketingActivityTypeSearchBox" placeholder="Search activity type...">
+      </div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="marketingActivityTypeTable">
+            <thead><tr id="marketingActivityTypeTheadRow"></tr></thead>
+            <tbody id="marketingActivityTypeTbody"></tbody>
+            <tfoot><tr id="marketingActivityTypeTfootRow"></tr></tfoot>
           </table>
         </div>
       </div>
@@ -1137,7 +1155,7 @@ async function tryLoadPublishedData(){
     updateSectionVisibility();
     lastPublished = { at: meta.generatedAt, files: meta.sourceFiles || [] };
     filterState = { project:'', fy:'', month:'' };
-    marketingFilterState = { project: '', fy: '', month: '' };
+    marketingFilterState = { project: '', fy: '', month: '', activityType: '' };
     marketingExpenseFilterState = { subType: '' };
     populateFilterOptions();
     populateMarketingFilterOptions();
@@ -1406,9 +1424,9 @@ let RAW = {
                                 // budget allocated/actual payment amounts — see Marketing Budget section.
 };
 let filterState = { project: '', fy: '', month: '' };
-// project scopes Promotion Payments only; fy/month scope both Promotion Payments and Expense
-// Requisitions (each by its own Processed Date) — see matchesMarketingFYMonth().
-let marketingFilterState = { project: '', fy: '', month: '' };
+// project and activityType scope Promotion Payments only; fy/month scope both Promotion Payments and
+// Expense Requisitions (each by its own Processed Date) — see matchesMarketingFYMonth().
+let marketingFilterState = { project: '', fy: '', month: '', activityType: '' };
 let marketingExpenseFilterState = { subType: '' };
 // Derived / currently-displayed data — render functions read these exactly as before.
 let masterData = [];
@@ -1418,7 +1436,7 @@ let agreementData = [];
 let collectionData = [];
 let collectionFYData = [];
 let outstandingData = [];
-let genuineCancelledUnits = 0, genuineCancelledValue = 0;
+let genuineCancelledUnits = 0, genuineCancelledValue = 0, genuineCancelledArea = 0;
 let agreementSignedCount = 0, agreementSignedValue = 0, agreementRegisteredCount = 0, agreementRegisteredValue = 0;
 let agreementYetToSignCount = 0, agreementYetToSignValue = 0, agreementYetToRegisterCount = 0, agreementYetToRegisterValue = 0;
 let soldValueMode = 'net'; // 'net' = current sold value as-is; 'gross' = net + genuine cancellations added back
@@ -1537,7 +1555,7 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
     }
     updateSectionVisibility();
     filterState = { project: '', fy: '', month: '' };
-    marketingFilterState = { project: '', fy: '', month: '' };
+    marketingFilterState = { project: '', fy: '', month: '', activityType: '' };
     marketingExpenseFilterState = { subType: '' };
     populateFilterOptions();
     populateMarketingFilterOptions();
@@ -2113,6 +2131,7 @@ function parseCancellationReport(wb){
   const subProjectIdx = col['SubProject Name'] !== undefined ? col['SubProject Name'] : 2;
   const unitNoIdx = col['Unit No'] !== undefined ? col['Unit No'] : 3;
   const bookingDateIdx = col['Booking Date'] !== undefined ? col['Booking Date'] : 4;
+  const superAreaIdx = col['Super Area'] !== undefined ? col['Super Area'] : 6;
   const unitValueIdx = col['Unit Value'] !== undefined ? col['Unit Value'] : 8;
   const cancellationDateIdx = col['Cancellation Date'] !== undefined ? col['Cancellation Date'] : 14;
   const reasonIdx = col['Cancellation Reason'] !== undefined ? col['Cancellation Reason'] : 15;
@@ -2127,9 +2146,10 @@ function parseCancellationReport(wb){
     const subProject = r[subProjectIdx] || '';
     const project = resolveProjectForSubProject(normalizeProjectName(rawProject), subProject);
     const reason = (r[reasonIdx] || '').toString().trim();
+    const unitArea = typeof r[superAreaIdx] === 'number' ? r[superAreaIdx] : 0;
     records.push({
       project: project || 'Unknown', subProject, unitNo: r[unitNoIdx] || '', customer,
-      bookingDate: r[bookingDateIdx] || '', unitValue,
+      bookingDate: r[bookingDateIdx] || '', unitValue, unitArea,
       cancellationDate: r[cancellationDateIdx] || '', reason,
       isGenuine: GENUINE_CANCELLATION_REASONS.includes(reason),
     });
@@ -2156,6 +2176,12 @@ function parsePromotionPaymentReport(wb){
   const projectIdx = at('Project', 3);
   const agentIdx = at('Agent', 4);
   const requestIdIdx = at('Request Id', 5);
+  // Promotion Type and Activity Type were added to this report later — a dashboard published from an
+  // older export simply won't have these columns, so col[...] stays undefined and every record's
+  // promotionType/activityType falls back to '' below (rendered as "Unspecified" wherever it's grouped),
+  // exactly like every other optional categorical field in this file.
+  const promotionTypeIdx = col['PROMOTION TYPE'];
+  const activityTypeIdx = col['ACTIVITY TYPE'];
   const activityIdx = at('Activity Description', 6);
   const certificateNoIdx = at('Certificate No.', 7);
   const chequeNoIdx = at('Cheque No.', 8);
@@ -2163,7 +2189,12 @@ function parsePromotionPaymentReport(wb){
   const advanceRecoveredIdx = at('Advance Recovered', 10);
   const processedDateIdx = at('Processed Date', 11);
   const tdsIdx = at('TDS', 13);
-  const surchargeIdx = at('Surcharge', 14);
+  // No positional fallback for Surcharge — newer exports (with Promotion Type / Activity Type inserted)
+  // dropped this column entirely, and a hardcoded index here would silently read whatever column now
+  // sits there (e.g. Processed Date) as a bogus Surcharge figure. Better to genuinely have none (0) than
+  // to fabricate one; the Surcharge KPI tile was already removed from the dashboard, so this only ever
+  // affects the raw .xlsx export column.
+  const surchargeIdx = col['Surcharge'];
   const netAmountIdx = at('Net Amount', 21);
   const paidAmountIdx = at('Paid Amount', 22);
   const outstandingIdx = at('Amount Outstanding', 23);
@@ -2179,7 +2210,10 @@ function parsePromotionPaymentReport(wb){
     records.push({
       company: r[companyIdx] || '',
       project: rawProject ? normalizeProjectName(rawProject) : '', // blank = company-wide "Brand / Corporate" spend, not tied to a project
-      agent: r[agentIdx] || '', requestId, activityDescription: r[activityIdx] || '',
+      agent: r[agentIdx] || '', requestId,
+      promotionType: (promotionTypeIdx !== undefined ? r[promotionTypeIdx] : '') || '',
+      activityType: (activityTypeIdx !== undefined ? r[activityTypeIdx] : '') || '',
+      activityDescription: r[activityIdx] || '',
       certificateNo: r[certificateNoIdx] || '', chequeNo: r[chequeNoIdx] || '',
       // Advance Amount is a Request-level (WO-level) field — the ERP export repeats the SAME value on
       // every certificate/payment row that shares a Request Id, so it must be de-duplicated by Request Id
@@ -2509,6 +2543,17 @@ function populateMarketingFilterOptions(){
   const sortedProjects = [...projects].sort();
   projSel.innerHTML = '<option value="">All Projects</option>' + sortedProjects.map(p=>`<option value="${p}">${p}</option>`).join('');
   if(sortedProjects.includes(marketingFilterState.project)) projSel.value = marketingFilterState.project; else marketingFilterState.project = '';
+  // Activity Type — added to the Sales Promotion Payment Report alongside Promotion Type; a dashboard
+  // built from an older export (or a record with no Activity Type) just won't populate this dropdown
+  // with anything from that row, same graceful-degradation as every other optional categorical filter.
+  const activityTypeSel = document.getElementById('filterMarketingActivityType');
+  if(activityTypeSel){
+    const activityTypes = new Set();
+    RAW.promotionRecords.forEach(r=> r.activityType && activityTypes.add(r.activityType));
+    const sortedActivityTypes = [...activityTypes].sort();
+    activityTypeSel.innerHTML = '<option value="">All Activity Types</option>' + sortedActivityTypes.map(t=>`<option value="${t}">${t}</option>`).join('');
+    if(sortedActivityTypes.includes(marketingFilterState.activityType)) activityTypeSel.value = marketingFilterState.activityType; else marketingFilterState.activityType = '';
+  }
   const fySel = document.getElementById('filterMarketingFY');
   const fySet = new Map(); // label -> sortKey
   RAW.promotionRecords.forEach(r=>{ const fy = financialYearOf(r.processedDate); if(fy) fySet.set(fy.label, fy.sortKey); });
@@ -2657,6 +2702,7 @@ function applyFiltersAndRender(){
   const genuineCancellations = filterFull(RAW.cancellationRecords.filter(r=>r.isGenuine), 'bookingDate');
   genuineCancelledUnits = genuineCancellations.length;
   genuineCancelledValue = genuineCancellations.reduce((a,r)=>a+r.unitValue, 0);
+  genuineCancelledArea = genuineCancellations.reduce((a,r)=>a+(r.unitArea||0), 0);
   // ---- Bookings — fully filterable ----
   bookingData = filterFull(RAW.bookingRecords, 'bookingDate');
   bookingFYData = aggregateBookingFY(filterProjectOnly(RAW.bookingRecords)); // trend — Project only
@@ -2753,6 +2799,11 @@ document.getElementById('filterMarketingProject').addEventListener('change', fun
   renderMarketingPage();
   renderMarketingKPIs();
 });
+document.getElementById('filterMarketingActivityType').addEventListener('change', function(){
+  marketingFilterState.activityType = this.value;
+  renderMarketingPage();
+  renderMarketingKPIs();
+});
 document.getElementById('filterMarketingFY').addEventListener('change', function(){
   marketingFilterState.fy = this.value;
   marketingFilterState.month = '';
@@ -2775,9 +2826,10 @@ document.getElementById('filterMarketingExpenseType').addEventListener('change',
   renderMarketingKPIs();
 });
 document.getElementById('filterMarketingClear').addEventListener('click', function(){
-  marketingFilterState = { project:'', fy:'', month:'' };
+  marketingFilterState = { project:'', fy:'', month:'', activityType:'' };
   marketingExpenseFilterState = { subType:'' };
   document.getElementById('filterMarketingProject').value = '';
+  document.getElementById('filterMarketingActivityType').value = '';
   document.getElementById('filterMarketingFY').value = '';
   populateMarketingMonthOptions();
   document.getElementById('filterMarketingMonth').value = '';
@@ -2850,10 +2902,16 @@ function renderKPIs(){
   // This deliberately does NOT equal the project's true all-time unit count once a period is selected —
   // units sold in other months still exist but drop out of this figure — see the Project-wise Detail
   // table below (and the .xlsx export) for the true, unfiltered total per project.
-  const periodTotalUnits = t.soldUnits + t.availUnits + t.blockedUnits;
+  // Mirrors the Sold page's "Booking Value" toggle: "All Bookings (Including Cancelled)" adds the
+  // genuinely-cancelled units back into Sold (and so into Total Units too), so this tile doesn't sit
+  // frozen while Sold Units/Sales Value/Sold Area all move with the toggle.
+  const hasCancellationReport = RAW.cancellationRecords.length > 0;
+  const showGross = hasCancellationReport && soldValueMode === 'gross';
+  const displaySoldUnits = showGross ? t.soldUnits + genuineCancelledUnits : t.soldUnits;
+  const periodTotalUnits = displaySoldUnits + t.availUnits + t.blockedUnits;
   const cards = [
     {lbl:'Projects', val: t.projects, sub: `${masterData.filter(m=>m.totalUnits>0).length} with active stock`},
-    {lbl:'Total Units', val: fmtNum(periodTotalUnits), sub: `<b class="pos">${fmtNum(t.soldUnits)}</b> sold &middot; ${fmtNum(t.availUnits)} unsold`},
+    {lbl:'Total Units', val: fmtNum(periodTotalUnits), sub: `<b class="pos">${fmtNum(displaySoldUnits)}</b> sold &middot; ${fmtNum(t.availUnits)} unsold`},
   ];
   document.getElementById('kpiGrid').innerHTML = cards.map(c=>`
     <div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>
@@ -3041,10 +3099,15 @@ function renderSoldPage(){
   const soldValueSub = showGross
     ? `Incl. ${fmtNum(genuineCancelledUnits)} genuinely-cancelled bookings (${fmtINRCr(genuineCancelledValue)})`
     : `Total booking value ${fmtINRCr(totalBookingValue)} and in abeyance ${fmtINRCr(inAbeyanceValue)}`;
+  // Sold Area mirrors Sold Units/Sales Value — "All Bookings (Including Cancelled)" adds back the
+  // Saleable Area of genuinely-cancelled units (from the Cancellation Report's own Super Area column),
+  // so this tile actually moves with the toggle instead of always showing the net figure.
+  const displayArea = showGross ? soldArea + genuineCancelledArea : soldArea;
+  const soldAreaSub = showGross ? `Incl. ${fmtNum(genuineCancelledArea)} sq.ft from genuinely-cancelled bookings` : 'Saleable area sold';
   document.getElementById('kpiGridSold').innerHTML = [
     {lbl:'Sold Units', val: fmtNum(displayUnits), sub: showGross ? `across ${masterData.filter(m=>m.soldUnits>0).length} projects, incl. cancellations` : `across ${masterData.filter(m=>m.soldUnits>0).length} projects`},
     {lbl:'Sales Value', val: fmtINRCr(displayValue), sub: soldValueSub},
-    {lbl:'Sold Area', val: fmtNum(soldArea)+' sq.ft', sub:'Saleable area sold'},
+    {lbl:'Sold Area', val: fmtNum(displayArea)+' sq.ft', sub: soldAreaSub},
   ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
@@ -3631,10 +3694,11 @@ function renderMarketingPage(){
     return; // combined KPI grid (renderMarketingKPIs) / chart-grid still render the expense side; this just leaves the promotion side blank
   }
   // projectOnlyFiltered feeds only the "Marketing by Financial Year" table below — like the Sales/CRM
-  // FY trend charts, that table always shows the full timeline for the current Project selection,
-  // ignoring the FY/Month filter itself (narrowing it to one FY would leave a single row).
+  // FY trend charts, that table always shows the full timeline for the current Project + Activity Type
+  // selection, ignoring the FY/Month filter itself (narrowing it to one FY would leave a single row).
   const projectOnlyFiltered = RAW.promotionRecords.filter(r =>
-    (!marketingFilterState.project || r.project === marketingFilterState.project)
+    (!marketingFilterState.project || r.project === marketingFilterState.project) &&
+    (!marketingFilterState.activityType || r.activityType === marketingFilterState.activityType)
   );
   const filtered = projectOnlyFiltered.filter(r => matchesMarketingFYMonth(r.processedDate));
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
@@ -3669,10 +3733,13 @@ function renderMarketingPage(){
       plugins:[ChartDataLabels]
     });
   }
-  // Outstanding amount by activity description (top 15)
+  // Outstanding amount by activity type (top 15) — grouped by the report's own Activity Type category
+  // (e.g. Ad Agency, Travel Services, Web Site Related Expense — ~40 clean values) rather than Activity
+  // Description, which is a free-text per-row label with over a thousand distinct values and was never
+  // a meaningful grouping key.
   const byActivityMap = {};
   filtered.forEach(r=>{
-    const key = r.activityDescription || 'Unspecified';
+    const key = r.activityType || 'Unspecified';
     byActivityMap[key] = (byActivityMap[key]||0) + r.amountOutstanding;
   });
   const byActivity = Object.entries(byActivityMap).map(([activity,value])=>({activity,value})).filter(a=>a.value>0).sort((a,b)=>b.value-a.value).slice(0,15);
@@ -3733,6 +3800,37 @@ function renderMarketingPage(){
     defaultSort:{key:'netAmount', dir:-1},
     totalsLabel:'projects'
   });
+  // ---- Activity-Type-wise Marketing Detail ---- (same Advance Paid de-dup rule, safe for the same
+  // reason — Activity Type is constant across every row sharing a Request Id)
+  const activityTypeAgg = {};
+  filtered.forEach(r=>{
+    const key = r.activityType || 'Unspecified';
+    if(!activityTypeAgg[key]) activityTypeAgg[key] = {requestIds:new Set(), advancePaid:0, advanceRecovered:0, netAmount:0, paidAmount:0, outstanding:0};
+    const a = activityTypeAgg[key];
+    if(!a.requestIds.has(r.requestId)){ a.requestIds.add(r.requestId); a.advancePaid += r.advanceAmount; }
+    a.advanceRecovered += r.advanceRecovered; a.netAmount += r.netAmount; a.paidAmount += r.paidAmount; a.outstanding += r.amountOutstanding;
+  });
+  const activityTypeRows = Object.entries(activityTypeAgg).map(([activityType,d])=>({
+    activityType, requests: d.requestIds.size, advancePaid: d.advancePaid, advanceRecovered: d.advanceRecovered,
+    netAmount: d.netAmount, paidAmount: d.paidAmount, outstanding: d.outstanding,
+  }));
+  renderGenericTable({
+    theadId:'marketingActivityTypeTheadRow', tbodyId:'marketingActivityTypeTbody', tfootId:'marketingActivityTypeTfootRow', searchId:'marketingActivityTypeSearchBox',
+    searchFields:['activityType'],
+    sortStateKey:'marketingActivityType',
+    columns:[
+      {key:'activityType', label:'Activity Type', align:'left'},
+      {key:'requests', label:'Requests', fmt:fmtNum},
+      {key:'advancePaid', label:'Advance Paid', fmt:fmtINRCr},
+      {key:'advanceRecovered', label:'Advance Recovered', fmt:fmtINRCr},
+      {key:'netAmount', label:'Net Amount', fmt:fmtINRCr},
+      {key:'paidAmount', label:'Paid Amount', fmt:fmtINRCr},
+      {key:'outstanding', label:'Outstanding Amount', fmt:fmtINRCr},
+    ],
+    rowsSource: activityTypeRows,
+    defaultSort:{key:'netAmount', dir:-1},
+    totalsLabel:'activity types'
+  });
   // ---- Vendor-wise Marketing Detail ---- (same Advance Paid de-dup rule, safe for the same reason —
   // Agent is constant across every row sharing a Request Id)
   const vendorAgg = {};
@@ -3765,10 +3863,12 @@ function renderMarketingPage(){
   // ---- Payment-wise (row-level) Promotion Detail ----
   renderGenericTable({
     theadId:'marketingTheadRow', tbodyId:'marketingTbody', tfootId:'marketingTfootRow', searchId:'marketingSearchBox',
-    searchFields:['project','activityDescription','agent','certificateNo'],
+    searchFields:['project','promotionType','activityType','activityDescription','agent','certificateNo'],
     sortStateKey:'marketingDetail',
     columns:[
       {key:'project', label:'Project', align:'left', noSum:true},
+      {key:'promotionType', label:'Promotion Type', align:'left', noSum:true},
+      {key:'activityType', label:'Activity Type', align:'left', noSum:true},
       {key:'activityDescription', label:'Activity', align:'left', noSum:true},
       {key:'agent', label:'Agent / Vendor', align:'left', noSum:true},
       {key:'certificateNo', label:'Certificate No', align:'left', noSum:true},
@@ -4250,6 +4350,7 @@ document.querySelectorAll('.toggle-tab').forEach(btn=>{
     soldValueMode = btn.dataset.mode;
     renderSoldPage();
     renderHero();
+    renderKPIs();
   });
 });
 /* ============ EXPORT ============ */
