@@ -2156,18 +2156,24 @@ function parseCancellationReport(wb){
   }
   return records;
 }
-// ---- Marketing Payment Summary Report (In4Velocity ERP "Marketing Payment Summary Report") ----
-// Every row is one Promotion Work Order line (a project-level "Project Related" spend, or a
-// company-wide "Brand Promotion Related" spend with no Project Name). The ERP workflow this report
-// reflects: Budget -> Promotion Request (WO) -> Promotion Payment Certificate (work actually
-// certified so far) -> Advances/Payments against that certified value, with any advance later
-// adjusted (recovered) against a certified invoice. "Available Amount (WO)" is what's left of the
-// Work Order that hasn't been certified yet (WO Gross − Certificate Total), i.e. unutilized budget.
+// ---- Promotion Payments — two known ERP export formats, auto-detected by header shape, both parsed
+// into the SAME record shape (company/project/promotionType/activityType/activityDescription/agent/
+// requestId/advanceAmount/advanceRecovered/processedDate/tds/surcharge/netAmount/paidAmount/
+// amountOutstanding/certificateNo/chequeNo) so every downstream KPI, chart and table in Marketing works
+// unchanged regardless of which format was uploaded:
+//   - "Sales Promotion Payment Report" (legacy): header row has Company + Request Id.
+//   - "Marketing Payment Summary Report" (WO-lifecycle "custom" export): header row has S.No +
+//     Promotion No. — see parsePromotionPaymentReportSummary for the field mapping rationale.
 function parsePromotionPaymentReport(wb){
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = sheetToRows(ws);
-  let headerIdx = rows.findIndex(r => normalizeHeader(r[0]) === 'Company' && r.some(c => normalizeHeader(c) === 'Request Id'));
-  if(headerIdx < 0) headerIdx = 7;
+  const summaryHeaderIdx = rows.findIndex(r => normalizeHeader(r[0]) === 'S.No' && r.some(c => normalizeHeader(c) === 'Promotion No.'));
+  if(summaryHeaderIdx >= 0) return parsePromotionPaymentReportSummary(rows, summaryHeaderIdx);
+  let legacyHeaderIdx = rows.findIndex(r => normalizeHeader(r[0]) === 'Company' && r.some(c => normalizeHeader(c) === 'Request Id'));
+  if(legacyHeaderIdx < 0) legacyHeaderIdx = 7;
+  return parsePromotionPaymentReportLegacy(rows, legacyHeaderIdx);
+}
+function parsePromotionPaymentReportLegacy(rows, headerIdx){
   const headerRow = rows[headerIdx] || [];
   const col = {};
   headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
@@ -2224,6 +2230,75 @@ function parsePromotionPaymentReport(wb){
       processedDate: r[processedDateIdx] || '',
       tds: num(r[tdsIdx]), surcharge: num(r[surchargeIdx]),
       netAmount: num(r[netAmountIdx]), paidAmount: num(r[paidAmountIdx]), amountOutstanding: num(r[outstandingIdx]),
+    });
+  }
+  return records;
+}
+// ---- Marketing Payment Summary Report (In4Velocity ERP "custom" WO-lifecycle export) ----
+// Every row is one Promotion Work Order (WO) line — a project-level "Project Related" spend, or a
+// company-wide "Brand Promotion Related" spend with no Project Name. The ERP workflow this report
+// reflects: Budget -> Promotion Request (WO) -> Promotion Payment Certificate (work actually certified
+// so far) -> Advances/Payments against that certified value, with Debit Note Recovery and TDS deducted
+// along the way. "Amount yet to be paid from certified value" is the report's own outstanding figure —
+// used as-is rather than re-derived, since it already accounts for Debit Note Recovery.
+//
+// Net Amount here is Certificate BASE Amount (pre-tax), not Certificate Total (post-tax) — this matches
+// the pre-tax "Net Amount" semantic the legacy report used, and the same pre-tax basis Expense's
+// "Certified Amount" uses, so the combined "Certified Amount" KPI tile stays apples-to-apples regardless
+// of which Promotion report format is uploaded. Verified against this report's own Grand Total row for
+// every mapped column.
+//
+// This report has no Certificate No./Cheque No. (no per-payment reference) and no free-text Activity
+// Description beyond Promotion Activity itself — both are left blank/'' here rather than guessed, and
+// render as "—" wherever shown, same as any other genuinely-absent optional field in this file.
+function parsePromotionPaymentReportSummary(rows, headerIdx){
+  const headerRow = rows[headerIdx] || [];
+  const col = {};
+  headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
+  const at = (label, fallback) => col[label] !== undefined ? col[label] : fallback;
+  const companyIdx = at('Company Name', 1);
+  const projectIdx = at('Project Name', 2);
+  const promotionTypeIdx = at('Promotion Type', 3);
+  const activityTypeIdx = at('Promotion Activity', 4);
+  const promotionNoIdx = at('Promotion No.', 5);
+  const requestDateIdx = at('Promotion Request Date', 7);
+  const budgetStartIdx = at('Budget Start Date', 8);
+  const budgetEndIdx = at('Budget End Date', 9);
+  const agentIdx = at('Agent Name', 10);
+  const certificateBaseIdx = at('Promotion Payment Certificate Base Amount', 15);
+  const tdsIdx = at('TDS Deduction', 18);
+  const advancePaidIdx = at('Advance Paid', 19);
+  const advanceRecoveredIdx = at('Advance Recovered', 20);
+  const paidAmountIdx = at('Paid Amount', 23);
+  const outstandingIdx = at('Amount yet to be paid from certified value', 24);
+  const num = v => typeof v === 'number' ? v : (v ? (Number(String(v).replace(/[^0-9.-]/g,'')) || 0) : 0);
+  const records = [];
+  for(let i=headerIdx+1; i<rows.length; i++){
+    const r = rows[i];
+    if(!r) continue;
+    const promotionNo = r[promotionNoIdx];
+    // The Grand Total row (and any trailing blank row) has no Promotion No — same subtotal-row guard
+    // used by every other report here.
+    if(typeof promotionNo !== 'number') continue;
+    const rawProject = r[projectIdx];
+    records.push({
+      company: r[companyIdx] || '',
+      project: rawProject ? normalizeProjectName(rawProject) : '', // blank = company-wide "Brand Promotion Related" spend, not tied to a project
+      agent: r[agentIdx] || '',
+      requestId: promotionNo, // Promotion No. plays the same role as the legacy report's Request Id (de-dup key for Advance Paid, which repeats per WO)
+      promotionType: r[promotionTypeIdx] || '', activityType: r[activityTypeIdx] || '',
+      activityDescription: '', certificateNo: '', chequeNo: '',
+      // Advance Paid is a WO-level field — like the legacy report's Advance Amount, the ERP repeats the
+      // SAME value on every certificate/payment row sharing a Promotion No, so it must be de-duplicated
+      // by Promotion No before summing (see uniqueAdvanceSum), or totals inflate.
+      advanceAmount: num(r[advancePaidIdx]), advanceRecovered: num(r[advanceRecoveredIdx]),
+      // Promotion Request Date is this report's closest analog to the legacy report's Processed Date —
+      // the date the transaction was actually raised (Budget Start/End Date instead describe the budget
+      // period the spend belongs to); the two fall in the same month for all but a handful of rows.
+      processedDate: r[requestDateIdx] || '',
+      budgetStartDate: r[budgetStartIdx] || '', budgetEndDate: r[budgetEndIdx] || '',
+      tds: num(r[tdsIdx]), surcharge: 0, // this report has no Surcharge column at all
+      netAmount: num(r[certificateBaseIdx]), paidAmount: num(r[paidAmountIdx]), amountOutstanding: num(r[outstandingIdx]),
     });
   }
   return records;
@@ -3863,7 +3938,7 @@ function renderMarketingPage(){
   // ---- Payment-wise (row-level) Promotion Detail ----
   renderGenericTable({
     theadId:'marketingTheadRow', tbodyId:'marketingTbody', tfootId:'marketingTfootRow', searchId:'marketingSearchBox',
-    searchFields:['project','promotionType','activityType','activityDescription','agent','certificateNo'],
+    searchFields:['project','promotionType','activityType','activityDescription','agent','requestId'],
     sortStateKey:'marketingDetail',
     columns:[
       {key:'project', label:'Project', align:'left', noSum:true},
@@ -3871,7 +3946,10 @@ function renderMarketingPage(){
       {key:'activityType', label:'Activity Type', align:'left', noSum:true},
       {key:'activityDescription', label:'Activity', align:'left', noSum:true},
       {key:'agent', label:'Agent / Vendor', align:'left', noSum:true},
-      {key:'certificateNo', label:'Certificate No', align:'left', noSum:true},
+      // Certificate No / Cheque No are always blank in the newer "Marketing Payment Summary Report" export
+      // (that format has no per-certificate breakdown), so this column shows Promotion No. (requestId)
+      // instead — it's populated in both report formats and is the more useful lookup key either way.
+      {key:'requestId', label:'Promotion No.', align:'left', noSum:true},
       {key:'processedDate', label:'Processed Date', align:'left', noSum:true},
       // noSum: Advance Amount repeats on every row sharing a Request Id, so a raw per-row column total
       // here would badly over-count — the correct de-duplicated total is shown in the KPI tile above.
@@ -4443,12 +4521,15 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(crmExport), 'CRM Project Summary');
   }
   // 10. Marketing — Promotion Payment Detail (every certificate/payment line item, unfiltered).
-  // Note: Advance Amount repeats per Request Id in this row-level export, same as in the source report —
-  // de-duplicate by Request Id before summing it, exactly as the dashboard's own KPI tile does.
+  // Note: Advance Amount repeats per Promotion No. in this row-level export, same as in the source report —
+  // de-duplicate by Promotion No. before summing it, exactly as the dashboard's own KPI tile does.
+  // Certificate No / Cheque No are always blank when the data came from the newer "Marketing Payment
+  // Summary Report" format (it has no per-certificate breakdown) — populated only for the legacy format.
   if(RAW.promotionRecords.length){
     const marketingExport = RAW.promotionRecords.map(r=>({
       'Company': r.company, 'Project': r.project || 'Brand / Corporate', 'Agent / Vendor': r.agent,
-      'Request Id': r.requestId, 'Activity Description': r.activityDescription,
+      'Promotion No': r.requestId, 'Promotion Type': r.promotionType, 'Activity Type': r.activityType,
+      'Activity Description': r.activityDescription,
       'Certificate No': r.certificateNo, 'Cheque No': r.chequeNo, 'Processed Date': r.processedDate,
       'Advance Amount (₹)': r.advanceAmount, 'Advance Recovered (₹)': r.advanceRecovered,
       'TDS (₹)': r.tds, 'Surcharge (₹)': r.surcharge,
