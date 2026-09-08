@@ -198,10 +198,13 @@
     display:grid;grid-template-columns:1fr 1fr;gap:0;background:var(--card);border:1px solid var(--border);
     border-radius:10px;overflow:hidden;margin-bottom:26px;box-shadow:0 1px 2px rgba(20,30,50,.04);
   }
+  /* Three-way split once a report with the MSP column has been uploaded — Unsold (Listed) / Unsold (MSP) / Sales Value */
+  .hero-split.has-msp{grid-template-columns:1fr 1fr 1fr;}
   @media (max-width:700px){.hero-split{grid-template-columns:1fr;}}
   .hero-half{padding:24px 26px;position:relative;}
   .hero-half.sold{background:linear-gradient(135deg,var(--navy-light) 0%,var(--navy) 100%);color:#fff;}
   .hero-half.avail{background:linear-gradient(135deg,var(--gold) 0%,var(--brick) 100%);color:#fff;}
+  .hero-half.msp{background:linear-gradient(135deg,var(--teal) 0%,var(--navy) 100%);color:#fff;}
   .hero-half .lbl{font-size:12px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;opacity:.85;margin-bottom:8px;}
   .hero-half .big{font-family:'Fraunces',serif;font-size:36px;font-weight:700;line-height:1;margin-bottom:6px;}
   .hero-half .sub2{font-size:12.5px;opacity:.9;}
@@ -2104,7 +2107,11 @@ function applyFiltersAndRender(){
   propertyWiseData = Object.entries(propMap).map(([property,d])=>({property, ...d})).sort((a,b)=>b.value-a.value);
   const value = {};
   new Set([...Object.keys(valueSold), ...Object.keys(valueAvail)]).forEach(p=>{
-    value[p] = { soldValue: (valueSold[p]&&valueSold[p].soldValue)||0, availValue: (valueAvail[p]&&valueAvail[p].availValue)||0 };
+    value[p] = {
+      soldValue: (valueSold[p]&&valueSold[p].soldValue)||0,
+      availValue: (valueAvail[p]&&valueAvail[p].availValue)||0,
+      availValueMSP: (valueAvail[p]&&valueAvail[p].availValueMSP)||0,
+    };
   });
   fyData = aggregateStockValue(filterProjectOnly(soldRecs)).fyData;   // trend chart — Project only, full history
   // project-only sold value, independent of FY/Month — used solely by Collection's Outstanding Balance,
@@ -2361,16 +2368,31 @@ function renderHero(){
   const showGross = hasCancellationReport && soldValueMode === 'gross';
   const displayUnits = showGross ? t.soldUnits + genuineCancelledUnits : t.soldUnits;
   const displayValue = showGross ? t.soldValue + genuineCancelledValue : t.soldValue;
+  // Unsold (Listed) vs Sales Value is the "whole portfolio" split — the two add up to 100%, same as
+  // this banner has always shown. Unsold (MSP) is a second, independent valuation of the SAME unsold
+  // units (not extra inventory), so it can't also be folded into that 100% without double-counting —
+  // its own bar and sub-line instead show it as a share of the Listed value (how much of a discount
+  // MSP represents), which is the meaningful comparison for that figure.
   const totalForSplit = t.availValue + displayValue;
   const availPct = totalForSplit ? (t.availValue/totalForSplit*100) : 0;
   const soldPct = 100 - availPct;
+  const mspOfListedPct = t.availValue ? (t.availValueMSP/t.availValue*100) : 0;
+  const mspCard = hasMSPData ? `
+    <div class="hero-half msp">
+      <div class="lbl">Unsold (MSP)</div>
+      <div class="big num">${fmtINRCr(t.availValueMSP)}</div>
+      <div class="sub2">${fmtNum(t.availUnits)} units &middot; ${mspOfListedPct.toFixed(1)}% of Listed value</div>
+      <div class="hero-bar"><div class="fill" style="width:${Math.min(mspOfListedPct,100)}%"></div></div>
+    </div>` : '';
+  document.getElementById('heroSplit').className = 'hero-split' + (hasMSPData ? ' has-msp' : '');
   document.getElementById('heroSplit').innerHTML = `
     <div class="hero-half avail">
-      <div class="lbl">Unsold Value</div>
+      <div class="lbl">Unsold (Listed)</div>
       <div class="big num">${fmtINRCr(t.availValue)}</div>
       <div class="sub2">${fmtNum(t.availUnits)} units &middot; ${availPct.toFixed(1)}% of portfolio</div>
       <div class="hero-bar"><div class="fill" style="width:${availPct}%"></div></div>
     </div>
+    ${mspCard}
     <div class="hero-half sold">
       <div class="lbl">Sales Value</div>
       <div class="big num">${fmtINRCr(displayValue)}</div>
