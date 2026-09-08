@@ -219,6 +219,24 @@
     color:var(--ink);background:#fff;
   }
   .filter-bar .btn{flex-shrink:0;}
+  /* Multi-select checkbox dropdown (Financial Year / Month) — a button + floating checkbox panel,
+     styled to match the plain <select> fields it sits next to. */
+  .multiselect{position:relative;}
+  .multiselect-btn{
+    width:100%;text-align:left;padding:9px 11px;border:1px solid var(--border);border-radius:7px;font-size:13px;
+    font-family:'Inter',sans-serif;color:var(--ink);background:#fff;cursor:pointer;
+  }
+  .multiselect-btn::after{content:'▾';float:right;color:var(--muted);margin-left:8px;}
+  .multiselect-panel{
+    display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:100%;max-height:260px;overflow-y:auto;
+    background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);
+    padding:6px;z-index:20;
+  }
+  .multiselect.open .multiselect-panel{display:block;}
+  .ms-option{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:5px;font-size:13px;cursor:pointer;white-space:nowrap;color:var(--ink);}
+  .ms-option:hover{background:var(--navy-pale);}
+  .ms-option input{margin:0;flex-shrink:0;}
+  .ms-empty{padding:6px 8px;font-size:12.5px;color:var(--muted);}
   .filter-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 2px 22px;font-size:12px;}
   .filter-chip{background:var(--navy-pale);color:var(--navy);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-weight:600;}
   .filter-note{color:var(--muted);}
@@ -244,6 +262,9 @@
   .section-title.group:first-child{margin-top:0;}
   .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:14px;}
   @media (max-width:620px){.kpi-grid{grid-template-columns:repeat(2,1fr);}}
+  /* Spans the full grid row to sub-divide a kpi-grid into labelled groups (e.g. "current backlog"
+     vs "activity in the selected period") without needing a separate grid/section per group. */
+  .kpi-group-label{grid-column:1/-1;font-size:11px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;color:var(--muted);margin:2px 2px -4px;}
   .sold-toggle{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px;padding:8px 10px;background:var(--navy-pale);border:1px solid var(--border);border-radius:8px;font-size:13px;}
   .sold-toggle-label{font-weight:600;color:var(--navy);}
   .toggle-tabs{display:flex;gap:4px;background:#fff;border:1px solid var(--border);border-radius:7px;padding:3px;}
@@ -429,12 +450,18 @@
         <select id="filterProject"><option value="">All Projects</option></select>
       </div>
       <div class="filter-field">
-        <label for="filterFY">Financial Year</label>
-        <select id="filterFY"><option value="">All Financial Years</option></select>
+        <label id="filterFYLabel">Financial Year</label>
+        <div class="multiselect" id="filterFYWrap">
+          <button type="button" class="multiselect-btn" id="filterFYBtn" aria-labelledby="filterFYLabel">All Financial Years</button>
+          <div class="multiselect-panel" id="filterFYPanel"></div>
+        </div>
       </div>
       <div class="filter-field">
-        <label for="filterMonth">Month</label>
-        <select id="filterMonth"><option value="">All Months</option></select>
+        <label id="filterMonthLabel">Month</label>
+        <div class="multiselect" id="filterMonthWrap">
+          <button type="button" class="multiselect-btn" id="filterMonthBtn" aria-labelledby="filterMonthLabel">All Months</button>
+          <div class="multiselect-panel" id="filterMonthPanel"></div>
+        </div>
       </div>
       <button class="btn btn-ghost" id="filterClear">Clear filters</button>
     </div>
@@ -875,7 +902,7 @@ async function tryLoadPublishedData(){
     RAW = newRAW;
     updateSectionVisibility();
     lastPublished = { at: meta.generatedAt, files: meta.sourceFiles || [] };
-    filterState = { project:'', fy:'', month:'' };
+    filterState = { project:'', fy:[], month:[] };
     populateFilterOptions();
     applyFiltersAndRender();
     updateLastUpdatedBadge();
@@ -1118,7 +1145,12 @@ let RAW = {
   outstandingRecords: [],      // Debtor Ageing Report (Summary): project, unit, totalCost, dueAsOnDay, totalReceived, netDue, netReceivable (no dates — snapshot as-on-date)
   cancellationRecords: [],     // Customer Cancellation Report: project, bookingDate, unitValue, cancellationDate, reason
 };
-let filterState = { project: '', fy: '', month: '' };
+// fy/month are arrays — both Financial Year and Month support selecting more than one value at once
+// (see the multiselect widgets wired near the bottom of the file). An empty array means "All", same
+// as an empty string did before this became multi-select.
+let filterState = { project: '', fy: [], month: [] };
+let fyOptionsList = [];    // [{value,label}] — current Financial Year checkbox options, rebuilt by populateFilterOptions()
+let monthOptionsList = []; // [{value,label}] — current Month checkbox options, rebuilt by populateMonthOptions()
 // Derived / currently-displayed data — render functions read these exactly as before.
 let masterData = [];
 let fyData = [];
@@ -1217,7 +1249,7 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
       RAW.cancellationRecords = [];
     }
     updateSectionVisibility();
-    filterState = { project: '', fy: '', month: '' };
+    filterState = { project: '', fy: [], month: [] };
     populateFilterOptions();
     applyFiltersAndRender();
     const fileNames = [file1Data.name, file2Data.name, file3Data && file3Data.name, file4Data && file4Data.name, file5Data && file5Data.name, file6Data && file6Data.name, file7Data && file7Data.name].filter(Boolean);
@@ -1829,14 +1861,18 @@ function matchesProject(rec, project){ return !project || rec.project === projec
 // tables to hide rows with zero activity for the selected period — with no period selected, every
 // project belongs (it may just have zero sales ever); with a period selected, a project showing
 // zero Sold Units for that specific window isn't useful clutter, so those rows are hidden.
-function periodFilterActive(){ return !!(filterState.fy || filterState.month); }
+function periodFilterActive(){ return filterState.fy.length>0 || filterState.month.length>0; }
+// fy/month are now arrays (multi-select) — matching a record means "belongs to ANY of the selected
+// months" if any months are picked (same month-wins-over-FY precedence as before, since a selected
+// month already implies its own FY), otherwise "belongs to ANY of the selected FYs".
 function matchesDate(rec, dateField, fy, month){
-  if(!fy && !month) return true;
+  const hasFY = fy && fy.length, hasMonth = month && month.length;
+  if(!hasFY && !hasMonth) return true;
   const dateVal = rec[dateField];
   if(!dateVal) return false;
-  if(month){ const mk = monthKeyOf(dateVal); return !!mk && mk.key === month; }
+  if(hasMonth){ const mk = monthKeyOf(dateVal); return !!mk && month.includes(mk.key); }
   const fyInfo = financialYearOf(dateVal);
-  return !!fyInfo && fyInfo.label === fy;
+  return !!fyInfo && fy.includes(fyInfo.label);
 }
 function filterFull(records, dateField){
   return records.filter(r => matchesProject(r, filterState.project) && matchesDate(r, dateField, filterState.fy, filterState.month));
@@ -1847,6 +1883,40 @@ function filterProjectOnly(records){
 function filterStockDict(dict, project){
   if(!project) return dict;
   return dict[project] ? {[project]: dict[project]} : {};
+}
+// ---- Generic multi-select dropdown (Financial Year / Month filters) ----
+// A lightweight checkbox-panel widget: a button showing a summary label, and a floating panel of
+// checkboxes. Native <select multiple> needs ctrl/cmd-click to pick more than one option, which is
+// not discoverable for a business dashboard audience, so this rolls a simple custom control instead —
+// only two fields need it, so a full component library would be overkill.
+function renderMultiSelectOptions(panelId, options, selected){
+  const panel = document.getElementById(panelId);
+  panel.innerHTML = options.length
+    ? options.map(o=>`<label class="ms-option"><input type="checkbox" value="${o.value}" ${selected.includes(o.value)?'checked':''}><span>${o.label}</span></label>`).join('')
+    : '<div class="ms-empty">No options available</div>';
+}
+function updateMultiSelectButtonLabel(btnId, options, selected, allLabel){
+  const btn = document.getElementById(btnId);
+  if(!selected.length) btn.textContent = allLabel;
+  else if(selected.length === 1){
+    const opt = options.find(o=>o.value===selected[0]);
+    btn.textContent = opt ? opt.label : selected[0];
+  } else btn.textContent = `${selected.length} selected`;
+}
+// Opens/closes the checkbox panel on button click; only one panel is ever open at a time, and
+// clicking anywhere outside (wired once, globally, near the bottom of the file) closes it.
+function wireMultiSelectToggle(wrapId){
+  const wrap = document.getElementById(wrapId);
+  const btn = wrap.querySelector('.multiselect-btn');
+  if(btn.dataset.wired) return;
+  btn.dataset.wired = '1';
+  btn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const isOpen = wrap.classList.contains('open');
+    document.querySelectorAll('.multiselect.open').forEach(w=>w.classList.remove('open'));
+    if(!isOpen) wrap.classList.add('open');
+  });
+  wrap.querySelector('.multiselect-panel').addEventListener('click', e=> e.stopPropagation());
 }
 function populateFilterOptions(){
   const projects = new Set();
@@ -1864,17 +1934,18 @@ function populateFilterOptions(){
     arr.forEach(r=>{ const fy = financialYearOf(r[field]); if(fy) fySet.set(fy.label, fy.sortKey); });
   });
   const projSel = document.getElementById('filterProject');
-  const fySel = document.getElementById('filterFY');
   const sortedProjects = [...projects].sort();
   projSel.innerHTML = '<option value="">All Projects</option>' + sortedProjects.map(p=>`<option value="${p}">${p}</option>`).join('');
   const sortedFY = [...fySet.entries()].sort((a,b)=>a[1]-b[1]).map(e=>e[0]);
-  fySel.innerHTML = '<option value="">All Financial Years</option>' + sortedFY.map(f=>`<option value="${f}">${f}</option>`).join('');
+  fyOptionsList = sortedFY.map(f=>({value:f, label:f}));
+  filterState.fy = filterState.fy.filter(v=>sortedFY.includes(v)); // drop selections that no longer exist in the data
+  wireMultiSelectToggle('filterFYWrap');
+  renderMultiSelectOptions('filterFYPanel', fyOptionsList, filterState.fy);
+  updateMultiSelectButtonLabel('filterFYBtn', fyOptionsList, filterState.fy, 'All Financial Years');
   populateMonthOptions();
 }
 function populateMonthOptions(){
-  const monthSel = document.getElementById('filterMonth');
-  const prevVal = monthSel.value;
-  const monthMap = new Map(); // key -> {label, sortKey}
+  const monthMap = new Map(); // key -> label
   const dateSources = [
     [RAW.customerRecords,'bookingDate'], [RAW.stockUnitRecords,'bookingDate'],
     [RAW.agreementRecords,'bookingDate'], [RAW.agreementRecords,'agreementDate'], [RAW.agreementRecords,'regnDate'],
@@ -1884,16 +1955,19 @@ function populateMonthOptions(){
     arr.forEach(r=>{
       const mk = monthKeyOf(r[field]);
       if(!mk) return;
-      if(filterState.fy && (!mk.fy || mk.fy.label !== filterState.fy)) return; // scope months to the chosen FY
+      if(filterState.fy.length && (!mk.fy || !filterState.fy.includes(mk.fy.label))) return; // scope months to the chosen FY set (union across all selected FYs)
       if(!monthMap.has(mk.key)) monthMap.set(mk.key, mk.label);
     });
   });
   const sorted = [...monthMap.entries()].sort((a,b)=> a[0].localeCompare(b[0]));
-  monthSel.innerHTML = '<option value="">All Months</option>' + sorted.map(([key,label])=>`<option value="${key}">${label}</option>`).join('');
-  if(sorted.some(([key])=>key===prevVal)) monthSel.value = prevVal; else filterState.month = '';
+  monthOptionsList = sorted.map(([key,label])=>({value:key, label}));
+  filterState.month = filterState.month.filter(v=>monthOptionsList.some(o=>o.value===v)); // drop selections no longer valid for the current FY set
+  wireMultiSelectToggle('filterMonthWrap');
+  renderMultiSelectOptions('filterMonthPanel', monthOptionsList, filterState.month);
+  updateMultiSelectButtonLabel('filterMonthBtn', monthOptionsList, filterState.month, 'All Months');
 }
 function applyFiltersAndRender(){
-  const dateFilterActive = !!(filterState.fy || filterState.month);
+  const dateFilterActive = periodFilterActive();
   // Booking Report gives a cleaner sale value (Base Cost only — GST/Corpus/Registration/Maintenance
   // excluded) than Stock Summary's own Net Amount, which typically still includes those charges. So
   // for any Sold unit that has a matching Booking Report entry (same Project + Sub Project + Unit No),
@@ -2063,10 +2137,14 @@ function applyFiltersAndRender(){
 function renderFilterSummary(){
   const chips = [];
   if(filterState.project) chips.push(filterState.project);
-  if(filterState.month){
-    const opt = [...document.getElementById('filterMonth').options].find(o=>o.value===filterState.month);
-    chips.push(opt ? opt.textContent : filterState.month);
-  } else if(filterState.fy) chips.push(filterState.fy);
+  if(filterState.month.length){
+    filterState.month.forEach(v=>{
+      const opt = monthOptionsList.find(o=>o.value===v);
+      chips.push(opt ? opt.label : v);
+    });
+  } else if(filterState.fy.length){
+    filterState.fy.forEach(v=>chips.push(v));
+  }
   const el = document.getElementById('filterSummary');
   if(!chips.length){ el.style.display='none'; el.innerHTML=''; return; }
   el.style.display='flex';
@@ -2077,22 +2155,33 @@ document.getElementById('filterProject').addEventListener('change', function(){
   filterState.project = this.value;
   applyFiltersAndRender();
 });
-document.getElementById('filterFY').addEventListener('change', function(){
-  filterState.fy = this.value;
-  filterState.month = '';
+document.getElementById('filterFYPanel').addEventListener('change', function(e){
+  if(e.target.type !== 'checkbox') return;
+  const val = e.target.value;
+  if(e.target.checked){ if(!filterState.fy.includes(val)) filterState.fy.push(val); }
+  else { filterState.fy = filterState.fy.filter(v=>v!==val); }
+  filterState.month = []; // the available Month options are scoped to the chosen FY set, so any previous Month picks may no longer be valid
+  updateMultiSelectButtonLabel('filterFYBtn', fyOptionsList, filterState.fy, 'All Financial Years');
   populateMonthOptions();
   applyFiltersAndRender();
 });
-document.getElementById('filterMonth').addEventListener('change', function(){
-  filterState.month = this.value;
+document.getElementById('filterMonthPanel').addEventListener('change', function(e){
+  if(e.target.type !== 'checkbox') return;
+  const val = e.target.value;
+  if(e.target.checked){ if(!filterState.month.includes(val)) filterState.month.push(val); }
+  else { filterState.month = filterState.month.filter(v=>v!==val); }
+  updateMultiSelectButtonLabel('filterMonthBtn', monthOptionsList, filterState.month, 'All Months');
   applyFiltersAndRender();
+});
+document.addEventListener('click', ()=>{
+  document.querySelectorAll('.multiselect.open').forEach(w=>w.classList.remove('open'));
 });
 document.getElementById('filterClear').addEventListener('click', function(){
-  filterState = { project:'', fy:'', month:'' };
+  filterState = { project:'', fy:[], month:[] };
   document.getElementById('filterProject').value = '';
-  document.getElementById('filterFY').value = '';
+  renderMultiSelectOptions('filterFYPanel', fyOptionsList, filterState.fy);
+  updateMultiSelectButtonLabel('filterFYBtn', fyOptionsList, filterState.fy, 'All Financial Years');
   populateMonthOptions();
-  document.getElementById('filterMonth').value = '';
   applyFiltersAndRender();
 });
 /* ============ FORMATTING ============ */
@@ -2456,37 +2545,69 @@ function renderAvailablePage(){
 }
 /* ============ AGREEMENT REGISTER PAGE ============ */
 function renderAgreementPage(){
-  if(!agreementData.length){
-    document.getElementById('kpiGridAgreement').innerHTML = RAW.agreementRecords.length
-      ? '<p class="chart-note" style="margin:4px 2px;">No agreement records match the current filter.</p>' : '';
+  if(!RAW.agreementRecords.length){
+    document.getElementById('kpiGridAgreement').innerHTML = '';
     destroyChart('stage');
     destroyChart('pendingRegn');
+    renderGenericTable({
+      theadId:'agreementTheadRow', tbodyId:'agreementTbody', tfootId:'agreementTfootRow', searchId:'agreementSearchBox',
+      filterSelectId:'stageFilter', filterKey:'unitStatus',
+      searchFields:['project','unitNo','customer'], sortStateKey:'agreement',
+      columns:[
+        {key:'project', label:'Project', align:'left'}, {key:'subProject', label:'Sub Project', align:'left', noSum:true},
+        {key:'unitNo', label:'Unit No', align:'left', noSum:true}, {key:'customer', label:'Customer', align:'left', noSum:true},
+        {key:'bookingDate', label:'Booking Date', align:'left', noSum:true}, {key:'agreementDate', label:'Agreement Date', align:'left', noSum:true},
+        {key:'recvdExctd', label:'Recvd & Exctd Date', align:'left', noSum:true}, {key:'regnDate', label:'Regn Date', align:'left', noSum:true},
+        {key:'possessionDate', label:'Possession Date', align:'left', noSum:true}, {key:'unitStatus', label:'Unit Status', align:'left', noSum:true},
+      ],
+      rowsSource: [], defaultSort:{key:'project', dir:1}, totalsLabel:'units'
+    });
     return;
   }
-  const { statusList, projectPending } = buildAgreementSummary(agreementData);
-  const total = agreementData.length;
-  const regnRecorded = agreementData.filter(r=>r.regnDate!=='').length;
+  // ---- Backlog tiles (Units Tracked / Yet to Sign / Yet to be Registered) — Project filter only,
+  // deliberately NOT scoped to Financial Year / Month. These are "how much is left to do right now"
+  // figures, not period activity, so scoping them to the selected month would make them go blank
+  // whenever that month happened to have zero new bookings (booking date is what Units Tracked and
+  // the Yet-to-* tiles used to be filtered by). "Total Agreement Signed" / "Total Unit Registered"
+  // below them are the period-scoped counterpart — see the comment above their computation in
+  // applyFiltersAndRender for why those two use their own Agreement Date / Regn Date instead.
+  const agreementBacklog = filterProjectOnly(RAW.agreementRecords);
+  const backlogTotal = agreementBacklog.length;
   // Units Tracked (Agreement Register) runs ahead of Units Booked (Booking Report) by the units that
   // have no matching Booking Report row at all — "in abeyance" here means "missing from Booking
   // Report", NOT literally status = "In Abeyance" (that was tried first, but a unit can be missing
   // from the Booking Report under any status — In Abeyance, Pending - Finance NOC, Agreement Prepared
   // & Sent, etc. — so keying off the status text under-counted the gap). Matched by Project + Sub
   // Project + Unit No, same key used for the Sales Value split, so "booked" + "in abeyance" always
-  // sums to exactly Units Tracked, however the filter is set.
-  const bookingKeySet = new Set(bookingData.map(r => r.project+'|'+(r.subProject||'').trim().toLowerCase()+'|'+String(r.unitNo).trim()));
-  const unitsBookedMatched = agreementData.filter(r => bookingKeySet.has(r.project+'|'+(r.subProject||'').trim().toLowerCase()+'|'+String(r.unitNo).trim())).length;
-  const inAbeyanceCount = total - unitsBookedMatched;
-  document.getElementById('kpiGridAgreement').innerHTML = [
-    {lbl:'Units Tracked', val: fmtNum(total), sub:`Units booked ${fmtNum(unitsBookedMatched)} and in abeyance ${fmtNum(inAbeyanceCount)}`},
-    {lbl:'Total Agreement Signed', val: fmtNum(agreementSignedCount), sub: `${fmtINRCr(agreementSignedValue)} booking value &middot; by Agreement Date`},
-    {lbl:'Yet to Sign', val: fmtNum(agreementYetToSignCount), sub: `${fmtINRCr(agreementYetToSignValue)} booking value &middot; no Agreement Date yet`},
-    {lbl:'Total Unit Registered', val: fmtNum(agreementRegisteredCount), sub: `${fmtINRCr(agreementRegisteredValue)} booking value &middot; by Regn Date`},
-    {lbl:'Yet to be Registered', val: fmtNum(agreementYetToRegisterCount), sub: `${fmtINRCr(agreementYetToRegisterValue)} booking value &middot; no Regn Date yet`},
+  // sums to exactly Units Tracked. Cross-referenced against the same Project-only (all-time) Booking
+  // Report set, so this stays consistent with the backlog basis above.
+  const bookingBacklogKeySet = new Set(filterProjectOnly(RAW.bookingRecords).map(r => r.project+'|'+(r.subProject||'').trim().toLowerCase()+'|'+String(r.unitNo).trim()));
+  const backlogBookedMatched = agreementBacklog.filter(r => bookingBacklogKeySet.has(r.project+'|'+(r.subProject||'').trim().toLowerCase()+'|'+String(r.unitNo).trim())).length;
+  const backlogInAbeyance = backlogTotal - backlogBookedMatched;
+  const backlogYetToSign = agreementBacklog.filter(r=>r.agreementDate === '');
+  const backlogYetToSignValue = backlogYetToSign.reduce((a,r)=>a+(r.agreementValue||0),0);
+  const backlogYetToRegister = agreementBacklog.filter(r=>r.regnDate === '');
+  const backlogYetToRegisterValue = backlogYetToRegister.reduce((a,r)=>a+(r.agreementValue||0),0);
+  const backlogCards = [
+    {lbl:'Units Tracked', val: fmtNum(backlogTotal), sub:`Units booked ${fmtNum(backlogBookedMatched)} and in abeyance ${fmtNum(backlogInAbeyance)} &middot; all-time for current Project`},
+    {lbl:'Yet to Sign', val: fmtNum(backlogYetToSign.length), sub: `${fmtINRCr(backlogYetToSignValue)} booking value &middot; current backlog, all-time`},
+    {lbl:'Yet to be Registered', val: fmtNum(backlogYetToRegister.length), sub: `${fmtINRCr(backlogYetToRegisterValue)} booking value &middot; current backlog, all-time`},
   ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+  const periodLabel = periodFilterActive() ? 'Signed / registered in the selected period' : 'Signed / registered (no period selected — all-time)';
+  const periodCards = [
+    {lbl:'Total Agreement Signed', val: fmtNum(agreementSignedCount), sub: `${fmtINRCr(agreementSignedValue)} booking value &middot; by Agreement Date`},
+    {lbl:'Total Unit Registered', val: fmtNum(agreementRegisteredCount), sub: `${fmtINRCr(agreementRegisteredValue)} booking value &middot; by Regn Date`},
+  ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+  document.getElementById('kpiGridAgreement').innerHTML = backlogCards +
+    `<div class="kpi-group-label">${periodLabel}</div>` + periodCards;
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
   const brick = getComputedStyle(document.documentElement).getPropertyValue('--brick').trim();
+  // Status distribution chart, Pending Registration chart and the detail table below all stay scoped
+  // to the selected Project + FY + Month (agreementData, by Booking Date) — unlike the backlog tiles
+  // above, these are exploratory views of "what was booked in this period", not backlog summaries.
+  const { statusList, projectPending } = buildAgreementSummary(agreementData);
   // populate status filter dropdown dynamically from the actual ERP status values present
   const stageFilterEl = document.getElementById('stageFilter');
   const currentFilterVal = stageFilterEl.value;
@@ -2494,6 +2615,10 @@ function renderAgreementPage(){
     statusList.map(s=>`<option value="${s.status}">${s.status} (${s.count})</option>`).join('');
   if(statusList.some(s=>s.status===currentFilterVal)) stageFilterEl.value = currentFilterVal;
   destroyChart('stage');
+  if(statusList.length === 0){
+    chartEmptyMessage('chartStage', 'No agreement records match the current filter.');
+  } else {
+  chartClearEmptyMessage('chartStage');
   charts.stage = new Chart(document.getElementById('chartStage'), {
     type:'bar',
     data:{
@@ -2510,6 +2635,7 @@ function renderAgreementPage(){
     },
     plugins:[ChartDataLabels]
   });
+  }
   const byPending = Object.entries(projectPending)
     .map(([project,p])=>({project, pendingRegn:p.pendingRegn}))
     .filter(p=>p.pendingRegn>0)
@@ -2566,7 +2692,7 @@ function renderCollectionPage(){
   }
   const { projectTotals, allTimeCollected } = buildCollectionSummary(collectionData);
   const unitsRecorded = collectionData.length;
-  const periodActive = !!(filterState.fy || filterState.month);
+  const periodActive = periodFilterActive();
   // Outstanding Balance: prefer the ERP's own Debtor Ageing Report (Summary) — Total Outstanding — when it's
   // been uploaded — it's authoritative, not an estimate. Falls back to the Sold-value-minus-Collected
   // approximation otherwise. Either way this is always all-time / as-on-date, never FY/Month filtered
@@ -2737,31 +2863,58 @@ function renderCollectionPage(){
 }
 /* ============ BOOKINGS PAGE ============ */
 function renderBookingPage(){
-  if(!bookingData.length){
-    document.getElementById('kpiGridBookings').innerHTML = RAW.bookingRecords.length
-      ? '<p class="chart-note" style="margin:4px 2px;">No bookings match the current filter.</p>' : '';
+  if(!RAW.bookingRecords.length){
+    document.getElementById('kpiGridBookings').innerHTML = '';
     destroyChart('bookingProject'); destroyChart('bookingFY'); destroyChart('bookingUnitType'); destroyChart('bookingArea');
+    renderGenericTable({
+      theadId:'bookingTheadRow', tbodyId:'bookingTbody', tfootId:'bookingTfootRow', searchId:'bookingSearchBox',
+      searchFields:['project','unitNo','customer'], sortStateKey:'booking',
+      columns:[
+        {key:'project', label:'Project', align:'left'},
+        {key:'subProject', label:'Sub Project', align:'left', noSum:true},
+        {key:'unitNo', label:'Unit No', align:'left', noSum:true},
+        {key:'customer', label:'Customer', align:'left', noSum:true},
+        {key:'bookingDate', label:'Booking Date', align:'left', noSum:true},
+        {key:'unitType', label:'Unit Type', align:'left', noSum:true},
+        {key:'area', label:'Area (sq.ft)', fmt:fmtNum},
+        {key:'bookingValue', label:'Booking Value', fmt:fmtINRCr},
+      ],
+      rowsSource: [], defaultSort:{key:'bookingValue', dir:-1}, totalsLabel:'units'
+    });
     return;
   }
-  const totalValue = bookingData.reduce((a,r)=>a+r.bookingValue,0);
-  const totalUnits = bookingData.length;
-  const avgValue = totalUnits ? totalValue/totalUnits : 0;
+  // Avg Booking Value is a backlog figure — Project filter only, deliberately NOT scoped to Financial
+  // Year / Month, same reasoning as the Agreement Register backlog tiles: it's "what's the average deal
+  // size right now", not period activity, so it shouldn't go blank/skew wildly just because the selected
+  // month happened to have few or no new bookings. Months Covered stays period-scoped below it, since
+  // "how many months does the current filter span" is meaningless without a period.
+  const bookingBacklog = filterProjectOnly(RAW.bookingRecords);
+  const backlogUnits = bookingBacklog.length;
+  const backlogValue = bookingBacklog.reduce((a,r)=>a+r.bookingValue,0);
+  const backlogAvgValue = backlogUnits ? backlogValue/backlogUnits : 0;
   // Units Booked and Total Booking Value are intentionally not shown as their own tiles here — Units
   // Booked is folded into the "Units Tracked" tile (Agreement Register grid), and Total Booking Value
   // is folded into the "Sales Value" tile (Sold grid) as its split "Total booking value + in abeyance"
   // sub-text, so neither sits as an unexplained extra number next to Sold Units / Sales Value.
   document.getElementById('kpiGridBookings').innerHTML = [
-    {lbl:'Avg Booking Value', val: fmtINRCr(avgValue), sub:'per unit booked'},
+    {lbl:'Avg Booking Value', val: fmtINRCr(backlogAvgValue), sub:'per unit booked &middot; all-time for current Project'},
     {lbl:'Months Covered', val: fmtNum(bookingMonthData.length), sub: bookingFYData.length ? `${bookingFYData[0].label} to ${bookingFYData[bookingFYData.length-1].label}` : ''},
   ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
+  // Charts and the detail table below all stay scoped to the selected Project + FY + Month (bookingData,
+  // by Booking Date) — unlike the Avg Booking Value tile above, these are exploratory views of "what was
+  // booked in this period", not backlog summaries.
   // Project-wise
   const projectTotals = {};
   bookingData.forEach(r=>{ projectTotals[r.project] = (projectTotals[r.project]||0) + r.bookingValue; });
   const byProject = Object.entries(projectTotals).map(([project,value])=>({project,value})).sort((a,b)=>b.value-a.value).slice(0,15);
   destroyChart('bookingProject');
+  if(byProject.length === 0){
+    chartEmptyMessage('chartBookingProject', 'No bookings match the current filter.');
+  } else {
+  chartClearEmptyMessage('chartBookingProject');
   charts.bookingProject = new Chart(document.getElementById('chartBookingProject'), {
     type:'bar',
     data:{ labels: byProject.map(p=>p.project), datasets:[{ label:'Booking Value', data: byProject.map(p=>p.value/1e7), backgroundColor: teal }] },
@@ -2775,8 +2928,13 @@ function renderBookingPage(){
     },
     plugins:[ChartDataLabels]
   });
-  // FY-wise
+  }
+  // FY-wise (trend — Project only, unaffected by the empty-state above since this always uses bookingFYData)
   destroyChart('bookingFY');
+  if(bookingFYData.length === 0){
+    chartEmptyMessage('chartBookingFY', 'No bookings for the selected project.');
+  } else {
+  chartClearEmptyMessage('chartBookingFY');
   charts.bookingFY = new Chart(document.getElementById('chartBookingFY'), {
     type:'bar',
     data:{ labels: bookingFYData.map(f=>f.label), datasets:[{ label:'Booking Value', data: bookingFYData.map(f=>f.value/1e7), backgroundColor: gold, borderRadius:4 }] },
@@ -2790,6 +2948,7 @@ function renderBookingPage(){
     },
     plugins:[ChartDataLabels]
   });
+  }
   // Booking value by unit type
   const unitTypeTotals = {};
   bookingData.forEach(r=>{
@@ -2798,6 +2957,10 @@ function renderBookingPage(){
   });
   const byUnitType = Object.entries(unitTypeTotals).map(([unitType,value])=>({unitType,value})).sort((a,b)=>b.value-a.value);
   destroyChart('bookingUnitType');
+  if(byUnitType.length === 0){
+    chartEmptyMessage('chartBookingUnitType', 'No bookings match the current filter.');
+  } else {
+  chartClearEmptyMessage('chartBookingUnitType');
   charts.bookingUnitType = new Chart(document.getElementById('chartBookingUnitType'), {
     type:'bar',
     data:{ labels: byUnitType.map(u=>u.unitType), datasets:[{ label:'Booking Value', data: byUnitType.map(u=>u.value/1e7), backgroundColor: gold }] },
@@ -2811,11 +2974,16 @@ function renderBookingPage(){
     },
     plugins:[ChartDataLabels]
   });
+  }
   // Area booked by project (top 15)
   const projectAreaTotals = {};
   bookingData.forEach(r=>{ projectAreaTotals[r.project] = (projectAreaTotals[r.project]||0) + r.area; });
   const byProjectArea = Object.entries(projectAreaTotals).map(([project,area])=>({project,area})).sort((a,b)=>b.area-a.area).slice(0,15);
   destroyChart('bookingArea');
+  if(byProjectArea.length === 0){
+    chartEmptyMessage('chartBookingArea', 'No bookings match the current filter.');
+  } else {
+  chartClearEmptyMessage('chartBookingArea');
   charts.bookingArea = new Chart(document.getElementById('chartBookingArea'), {
     type:'bar',
     data:{ labels: byProjectArea.map(p=>p.project), datasets:[{ label:'Area Booked', data: byProjectArea.map(p=>p.area), backgroundColor: teal }] },
@@ -2829,6 +2997,7 @@ function renderBookingPage(){
     },
     plugins:[ChartDataLabels]
   });
+  }
   renderGenericTable({
     theadId:'bookingTheadRow', tbodyId:'bookingTbody', tfootId:'bookingTfootRow', searchId:'bookingSearchBox',
     searchFields:['project','unitNo','customer'],
