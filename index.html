@@ -832,6 +832,85 @@ function resolveProjectForSubProject(project, subProject){
   const key = Object.keys(SUBPROJECT_PROJECT_OVERRIDE).find(k => k.toLowerCase() === lower);
   return key ? SUBPROJECT_PROJECT_OVERRIDE[key] : project;
 }
+// Ready Reckoner Rate (RRR) master — a per-sq.ft rate per Project+Sub Project, from the ERP's
+// SALES_READY_RECKONER_RATE_HEADER table. Used only as a fallback: when the Sale & Stock Summary
+// report's NET AMOUNT (MSP) column is 0/blank for an unsold unit, the fallback value is this rate x
+// the unit's Super Area, instead of showing an incorrect ₹0. Keyed on the RAW ERP "Project"/"Sub
+// Project" strings exactly as they appear in that report — i.e. BEFORE normalizeProjectName /
+// resolveProjectForSubProject's umbrella-grouping remap (so e.g. the individual "MP Pastel Petals"
+// project+sub-project, which the dashboard later folds into "Petals Phase II", is still keyed under
+// its own raw name here, matching what parseStockSummary reads before that remap happens).
+// Where a Project has more than one Sub Project, the rate genuinely differs by Sub Project (confirmed
+// against real data — e.g. MP Green Bay: Basil/Bayleaf @ 6800 vs Magnus/Merlin @ 7200; MP Petals:
+// Parsley @ 6500 vs Passion @ 6800) — so BOTH the Project and Sub Project must match, never Project alone.
+// Source: SALES_READY_RECKONER_RATE_HEADER export, resolved via the PROJECT and SUBPROJECT master
+// tables (CALCULATE_ON=1 / per-sq.ft for every row in that export). To refresh when the ERP's rate
+// card changes, re-resolve a fresh export against those two master tables and replace this object.
+const RRR_RATES = {
+  'MP Amber||MP Amber': 6000, // Cost of Apartment
+  'MP Divine||MP Divine Block2': 7000, // Cost of Apartment
+  'MP Divine||MP Divine Block3': 7000, // Cost of Apartment
+  'MP Eden||MP Eden Phase 1': 1800, // Land Cost
+  'MP Eden||MP Eden Phase 2': 1800, // Land Cost
+  'MP Eden||MP Eden Phase 3': 1800, // Land Cost
+  'MP Golden Heights||MP Golden Heights': 7800, // Cost of Apartment
+  'MP Green Bay||MP Basil': 6800, // Cost of Apartment
+  'MP Green Bay||MP Bayleaf': 6800, // Cost of Apartment
+  'MP Green Bay||MP Magnus': 7200, // Cost of Apartment
+  'MP Green Bay||MP Merlin': 7200, // Cost of Apartment
+  'MP Madang Gardens||MP Madang Gardens': 2400, // Plot Cost
+  'MP Malarvanam||MP Malarvanam': 2400, // Plot Cost
+  'MP Marbella||MP Marbella': 22500, // Cost of Apartment
+  'MP Mavis||MP Mavis': 7200, // Cost of Apartment
+  'MP Mugil & MP Mugavari||MP Mugavari': 9600, // Cost of Apartment
+  'MP Mugil & MP Mugavari||MP Mugil': 9600, // Cost of Apartment
+  'MP Pace Petals||MP Pace Petals': 6800, // Cost of Apartment
+  'MP Palm Petals||MP Palm Petals': 6800, // Cost of Apartment
+  'MP Paradise Petals||MP Paradise Petals': 6500, // Cost of Apartment
+  'MP Pastel Petals||MP Pastel Petals': 6800, // Cost of Apartment
+  'MP Pave Petals||MP Pave Petals': 6800, // Cost of Apartment
+  'MP Peach Petals||MP Peach Petals': 6800, // Cost of Apartment
+  'MP Pear Petals||MP Pear Petals': 6800, // Cost of Apartment
+  'MP Pearl Petals||MP Pearl Petals': 6800, // Cost of Apartment
+  'MP Petals||MP Parsley Petals': 6500, // Cost of Apartment
+  'MP Petals||MP Passion Petals': 6800, // Cost of Apartment
+  'MP Prism Petals||MP Prism Petals': 6800, // Cost of Apartment
+  'MP Puro Petals||MP Puro Petals': 6800, // Cost of Apartment
+  'MP Rue Radiale||RUE BOULEVARD': 11500, // Cost of Apartment
+  'MP Rue Radiale||RUE ELEGANCE': 11500, // Cost of Apartment
+  'MP Rue Radiale||RUE FLORENT': 11500, // Cost of Apartment
+  'MP Rue Radiale||RUE GRANDE': 11500, // Cost of Apartment
+  'MP Rue Radiale||RUE JARDIN': 11500, // Cost of Apartment
+  'MP Rue Radiale||RUE LUMIERE': 11500, // Cost of Apartment
+  'MP Rue Radiale||RUE MONACO': 11500, // Cost of Apartment
+  'MP Rue Radiale||RUE PROVENCE': 11500, // Cost of Apartment
+  'MP Rue Radiale||RUE RIVIERA': 11500, // Cost of Apartment
+  'MP Rue Radiale||RUE ROYALE': 11500, // Cost of Apartment
+  'MP Rue Radiale||RUE VERONICA': 11500, // Cost of Apartment
+  'MP Rue Radiale||RUE VOYAGE': 11500, // Cost of Apartment
+  'MP Rue Radiale 2.0||Nemilichery - 25 & 26': 11500, // Cost of Apartment
+  'MP Rue Radiale 2.0||Nemilichery - 27 & 28': 11500, // Cost of Apartment
+  'MP Rue Radiale 2.0||Nemilichery - 29 & 30': 11500, // Cost of Apartment
+  'MP Rue Radiale 2.0||Nemilichery - 31 & 32': 11500, // Cost of Apartment
+  'MP Rue Radiale 2.0||Nemilichery - 33 & 34': 11500, // Cost of Apartment
+  'MP Rue Radiale 2.0||Nemilichery - 35 & 36': 11500, // Cost of Apartment
+  'MP Rue Radiale 2.0||Nemilichery - 37 & 38 (part)': 11500, // Cost of Apartment
+  'MP Rue Radiale 2.0||Nemilichery - 38 (part) & 39': 11500, // Cost of Apartment
+  'MP Rue Radiale 2.0||Nemilichery - 40, 41 & 42': 11500, // Cost of Apartment
+  'MP Rue Radiale 2.0||Nemilichery - 43, 44 & 45': 11500, // Cost of Apartment
+  'MP Rue Radiale 2.0||Nemilichery - 46, 47, 48 & 49': 11500, // Cost of Apartment
+  'MP Rue Radiale 2.0||Nemilichery - 50, 51, 52 & 53': 11500, // Cost of Apartment
+  'MP Rue Radiale 2.0||Nemilichery - 54, 55 & 56': 11500, // Cost of Apartment
+  'MP Valas 27||MP VALAS27': 12000, // Cost of Apartment
+  'MP Varam||MP Varam': 9200, // Cost of Apartment
+  'The White House||The White House- Tower A': 11000, // Cost of Apartment
+};
+function rrrFallbackMSP(rawProj, rawSubProj, area){
+  if(!area) return 0;
+  const key = (rawProj||'').trim() + '||' + (rawSubProj||'').trim();
+  const rate = RRR_RATES[key];
+  return rate ? Math.round(rate * area) : 0;
+}
 const PROJECT_INFO = {
   'MP Amber': { location:'Anakaputhur', property:'Apartment' },
   'MP Divine': { location:'Kundrathur', property:'Apartment' },
@@ -1532,7 +1611,14 @@ function parseStockSummary(wb){
     const unitType = (unitTypeColIdx !== undefined && r[unitTypeColIdx]) ? r[unitTypeColIdx] : '';
     const unitNo = (unitNoColIdx !== undefined && r[unitNoColIdx]) ? r[unitNoColIdx] : '';
     const rec = { project: proj, subProject: rawSubProj || '', status, bookingDate, amount: amt, area, unitType, unitNo };
-    if(netAmountMSPColIdx !== undefined) rec.amountMSP = (typeof r[netAmountMSPColIdx] === 'number') ? r[netAmountMSPColIdx] : 0;
+    if(netAmountMSPColIdx !== undefined){
+      const rawMSP = (typeof r[netAmountMSPColIdx] === 'number') ? r[netAmountMSPColIdx] : 0;
+      // The ERP leaves NET AMOUNT (MSP) at 0/blank for some unsold units even though a Ready Reckoner
+      // Rate is defined for their Project+Sub Project — fall back to RRR_RATES x Super Area instead of
+      // showing an incorrect ₹0. Only applies to Available (unsold) stock; MSP is a pricing lever for
+      // what's still on the market, so a Sold unit's genuinely-0 MSP is left as 0, not backfilled.
+      rec.amountMSP = (rawMSP > 0) ? rawMSP : (status === 'Available' ? rrrFallbackMSP(rawProj, rawSubProj, area) : 0);
+    }
     unitRecords.push(rec);
   }
   return {stock, unitRecords, hasMSPStockData: netAmountMSPColIdx !== undefined};
