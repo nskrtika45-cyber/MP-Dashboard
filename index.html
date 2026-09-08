@@ -1230,6 +1230,11 @@ let availUnitData = [];
 let agreementSignedRows = [];
 let agreementRegisteredRows = [];
 let kpiDrillData = {};
+// Whether the uploaded Sale & Stock Summary report has the newer 'NET AMOUNT (MSP)' column. Recomputed
+// fresh every render pass from RAW.stockUnitRecords (rather than trusted from parse time) so it's
+// correct both right after upload AND after a published dashboard is reloaded from Firestore — RAW gets
+// rebuilt from its own persisted chunks on that path, which wouldn't carry a separate top-level flag.
+let hasMSPData = false;
 let charts = {};
 function readFileAsWB(file){
   return new Promise((resolve,reject)=>{
@@ -1470,12 +1475,23 @@ function parseStockSummary(wb){
   // 'Project'/'SubProject' columns at the start), so locate each needed column by its header text
   // rather than a fixed index. Returns raw per-unit records so callers can filter before aggregating.
   const rows1 = sheetToRows(wb.Sheets[sheet1Name]);
-  let headerIdx1 = rows1.findIndex(r => r.some(c=>(c+'').trim()==='Status') && r.some(c=>(c+'').trim()==='Net Amount'));
+  // Header detection is case-insensitive and matches on "starts with net amount" rather than an exact
+  // 'Net Amount' string — a newer export renamed that column 'Net Amount (Listed)' and added a sibling
+  // 'NET AMOUNT (MSP)' column (see below), and an exact-match here would miss the whole header row.
+  let headerIdx1 = rows1.findIndex(r => r.some(c=>(c+'').trim().toLowerCase()==='status') && r.some(c=>/^net amount/i.test((c+'').trim())));
   if(headerIdx1 < 0) headerIdx1 = rows1.findIndex(r => (r[0]+'').trim() === 'Unit No');
   if(headerIdx1 < 0) headerIdx1 = 2;
   const headerRow1 = rows1[headerIdx1] || [];
-  const col1 = {};
-  headerRow1.forEach((v,idx)=>{ const t=(v+'').trim(); if(t && col1[t]===undefined) col1[t]=idx; });
+  const col1 = {};   // exact trimmed header text -> column index
+  const col1ci = {}; // lowercased header text -> column index — export casing has drifted between
+                      // versions ("Net Amount (Listed)" vs "NET AMOUNT (MSP)"), so amount-column lookups
+                      // below go through this case-insensitive map rather than col1 directly.
+  headerRow1.forEach((v,idx)=>{
+    const t=(v+'').trim();
+    if(t && col1[t]===undefined) col1[t]=idx;
+    const tl = t.toLowerCase();
+    if(tl && col1ci[tl]===undefined) col1ci[tl]=idx;
+  });
   const projectColIdx = col1['Project'] !== undefined ? col1['Project']
     : (headerRow1[0] !== null && headerRow1[0] !== '' ? 0 : undefined); // tolerate label typos ("Poject" etc.) — column 0 has been Project in every export variant seen
   const subProjectColIdx = col1['SubProject'] !== undefined ? col1['SubProject']
@@ -1484,7 +1500,13 @@ function parseStockSummary(wb){
   const bookingDateColIdx = col1['Booking Date'] !== undefined ? col1['Booking Date'] : 2;
   const unitNoColIdx = col1['Unit No'];
   const statusColIdx = col1['Status'] !== undefined ? col1['Status'] : 9;
-  const netAmountColIdx = col1['Net Amount'] !== undefined ? col1['Net Amount'] : 13;
+  // Prefer 'Net Amount (Listed)' (the current export's name for the original listed/net figure), fall
+  // back to the older plain 'Net Amount' header, then to the historical fixed index as a last resort.
+  const netAmountColIdx = col1ci['net amount (listed)'] !== undefined ? col1ci['net amount (listed)']
+    : (col1ci['net amount'] !== undefined ? col1ci['net amount'] : 13);
+  // 'NET AMOUNT (MSP)' (Minimum Selling Price) is a newer, optional column — undefined on any export
+  // that predates it, which is how hasMSPStockData below tells "column absent" from "genuinely 0".
+  const netAmountMSPColIdx = col1ci['net amount (msp)'] !== undefined ? col1ci['net amount (msp)'] : undefined;
   const superAreaColIdx = col1['Super Area'];
   const unitTypeColIdx = col1['Unit Type'];
   const unitRecords = [];
@@ -1506,9 +1528,11 @@ function parseStockSummary(wb){
     const area = (superAreaColIdx !== undefined && typeof r[superAreaColIdx] === 'number') ? r[superAreaColIdx] : 0;
     const unitType = (unitTypeColIdx !== undefined && r[unitTypeColIdx]) ? r[unitTypeColIdx] : '';
     const unitNo = (unitNoColIdx !== undefined && r[unitNoColIdx]) ? r[unitNoColIdx] : '';
-    unitRecords.push({ project: proj, subProject: rawSubProj || '', status, bookingDate, amount: amt, area, unitType, unitNo });
+    const rec = { project: proj, subProject: rawSubProj || '', status, bookingDate, amount: amt, area, unitType, unitNo };
+    if(netAmountMSPColIdx !== undefined) rec.amountMSP = (typeof r[netAmountMSPColIdx] === 'number') ? r[netAmountMSPColIdx] : 0;
+    unitRecords.push(rec);
   }
-  return {stock, unitRecords};
+  return {stock, unitRecords, hasMSPStockData: netAmountMSPColIdx !== undefined};
 }
 // Pure aggregator — callable with the full unit record set or a filtered subset.
 // unitRecords passed in are expected to already be scoped to one status (Sold or Available) by the
@@ -1518,7 +1542,7 @@ function aggregateStockValue(unitRecords){
   const fyMap = {};
   const units = {}, area = {};
   unitRecords.forEach(rec=>{
-    if(!value[rec.project]) value[rec.project] = {soldValue:0, availValue:0};
+    if(!value[rec.project]) value[rec.project] = {soldValue:0, availValue:0, availValueMSP:0};
     units[rec.project] = (units[rec.project]||0) + 1;
     area[rec.project] = (area[rec.project]||0) + (rec.area||0);
     if(rec.status === 'Sold'){
@@ -1530,7 +1554,14 @@ function aggregateStockValue(unitRecords){
         fyMap[fy.label].units += 1;
       }
     }
-    else if(rec.status === 'Available') value[rec.project].availValue += rec.amount;
+    // NET AMOUNT (MSP) — Minimum Selling Price — is a per-unit field the newer Sale & Stock Summary
+    // export adds alongside the existing Net Amount (Listed) figure. It's only meaningful for unsold
+    // (Available) stock — Sold units carry 0/blank MSP in the source report since MSP is a pricing
+    // lever for what's still on the market, not a record of what a unit actually sold for. Older
+    // uploads without this column leave amountMSP undefined on every record (see parseStockSummary),
+    // so it sums to 0 here exactly like a genuinely-zero MSP would — the "Unsold (MSP)" tile is only
+    // shown at all when RAW.hasMSPStockData says the column was actually present.
+    else if(rec.status === 'Available'){ value[rec.project].availValue += rec.amount; value[rec.project].availValueMSP += (rec.amountMSP||0); }
   });
   const fyData = Object.entries(fyMap)
     .map(([label,d])=>({label, value:d.value, units:d.units, sortKey:d.sortKey}))
@@ -1884,7 +1915,7 @@ function buildMasterTable(discount, stock, value){
   const master = [];
   allProjects.forEach(proj=>{
     const s = stock[proj] || {totalUnits:0,soldUnits:0,soldArea:0,availUnits:0,availArea:0,blockedUnits:0,blockedArea:0};
-    const v = value[proj] || {soldValue:0,availValue:0};
+    const v = value[proj] || {soldValue:0,availValue:0,availValueMSP:0};
     const d = discount[proj] || null;
     const totalArea = (s.soldArea||0)+(s.availArea||0)+(s.blockedArea||0);
     const totalValue = v.soldValue + v.availValue;
@@ -1892,7 +1923,7 @@ function buildMasterTable(discount, stock, value){
       project: proj,
       totalUnits: s.totalUnits, soldUnits: s.soldUnits, availUnits: s.availUnits, blockedUnits: s.blockedUnits,
       totalArea, soldArea: s.soldArea, availArea: s.availArea, blockedArea: s.blockedArea,
-      soldValue: v.soldValue, availValue: v.availValue, totalValue,
+      soldValue: v.soldValue, availValue: v.availValue, availValueMSP: v.availValueMSP||0, totalValue,
       avgSoldPrice: s.soldArea ? v.soldValue/s.soldArea : null,
       avgAvailPrice: s.availArea ? v.availValue/s.availArea : null,
       beforeDiscount: d ? d.before : null,
@@ -2055,6 +2086,7 @@ function applyFiltersAndRender(){
   const soldFiltered = filterFull(soldRecs, 'bookingDate');           // respects Project + FY + Month
   const availFiltered = filterProjectOnly(availRecs);                 // snapshot — Project only
   soldUnitData = soldFiltered; availUnitData = availFiltered;         // cached for the KPI drill-down modal
+  hasMSPData = RAW.stockUnitRecords.some(r => r.amountMSP !== undefined);
   const { value: valueSold, units: soldUnitCounts, area: soldAreaSums } = aggregateStockValue(soldFiltered);
   const { value: valueAvail } = aggregateStockValue(availFiltered);
   // Unsold (Available) broken down by physical location and by property type (Apartment/Plot) —
@@ -2290,11 +2322,12 @@ function grandTotals(){
     acc.availArea += m.availArea||0;
     acc.soldValue += m.soldValue||0;
     acc.availValue += m.availValue||0;
+    acc.availValueMSP += m.availValueMSP||0;
     acc.totalValue += m.totalValue||0;
     acc.cancelledUnits += m.cancelledUnits||0;
     if(m.beforeDiscount !== null){ acc.beforeDiscount += m.beforeDiscount; acc.afterDiscount += m.afterDiscount; acc.activeBookedUnits += (m.discountActiveUnits||0); }
     return acc;
-  },{projects:0,totalUnits:0,soldUnits:0,availUnits:0,blockedUnits:0,totalArea:0,soldArea:0,availArea:0,soldValue:0,availValue:0,totalValue:0,beforeDiscount:0,afterDiscount:0,cancelledUnits:0,activeBookedUnits:0});
+  },{projects:0,totalUnits:0,soldUnits:0,availUnits:0,blockedUnits:0,totalArea:0,soldArea:0,availArea:0,soldValue:0,availValue:0,availValueMSP:0,totalValue:0,beforeDiscount:0,afterDiscount:0,cancelledUnits:0,activeBookedUnits:0});
 }
 function renderKPIs(){
   const t = grandTotals();
@@ -2571,9 +2604,12 @@ function renderAvailablePage(){
   kpiDrillData.avail = availUnitData; // cached for the KPI drill-down modal
   document.getElementById('kpiGridAvail').innerHTML = [
     {lbl:'Unsold Units', key:'avail', val: fmtNum(t.availUnits), sub:`across ${masterData.filter(m=>m.availUnits>0).length} projects`},
-    {lbl:'Unsold Value', key:'avail', val: fmtINRCr(t.availValue), sub:'Unsold inventory at current rates'},
+    {lbl:'Unsold (Listed)', key:'avail', val: fmtINRCr(t.availValue), sub:'Unsold inventory at listed price'},
+    // "Unsold (MSP)" only appears once a Sale & Stock Summary report with the 'NET AMOUNT (MSP)' column
+    // has actually been uploaded — showing it against older data would just read as a permanent ₹0.
+    ...(hasMSPData ? [{lbl:'Unsold (MSP)', key:'avail', val: fmtINRCr(t.availValueMSP), sub:'Unsold inventory at Minimum Selling Price'}] : []),
     {lbl:'Unsold Area', key:'avail', val: fmtNum(availArea)+' sq.ft', sub:'Saleable area unsold'},
-    {lbl:'Avg Rate', key:'avail', val: availArea ? '₹'+Math.round(t.availValue/availArea).toLocaleString('en-IN') : '—', sub:'per sq.ft, unsold stock'},
+    {lbl:'Avg Rate', key:'avail', val: availArea ? '₹'+Math.round(t.availValue/availArea).toLocaleString('en-IN') : '—', sub:'per sq.ft, unsold stock (listed)'},
   ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
@@ -3305,7 +3341,7 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
     'Project': m.project,
     'Total Units': m.totalUnits, 'Sold Units': m.soldUnits, 'Unsold Units': m.availUnits, 'Blocked Units': m.blockedUnits,
     'Total Area (sq.ft)': m.totalArea, 'Sold Area': m.soldArea, 'Unsold Area': m.availArea, 'Blocked Area': m.blockedArea,
-    'Sold Value (₹)': m.soldValue, 'Unsold Value (₹)': m.availValue, 'Total Value (₹)': m.totalValue,
+    'Sold Value (₹)': m.soldValue, 'Unsold Value - Listed (₹)': m.availValue, 'Unsold Value - MSP (₹)': hasMSPData ? m.availValueMSP : null, 'Total Value (₹)': m.totalValue,
     'Before Discount (₹)': m.beforeDiscount, 'After Discount (₹)': m.afterDiscount, 'Discount (₹)': m.discountValue, 'Discount %': m.discountPct===null?null:Number(m.discountPct.toFixed(2)),
     'Cancelled Bookings': m.cancelledUnits,
   }));
@@ -3404,7 +3440,7 @@ const KPI_DRILL_COLUMNS = {
     {key:'availValue', label:'Unsold Value', fmt:fmtINRCr},
     {key:'totalValue', label:'Total Value', fmt:fmtINRCr},
   ],
-  stockUnit: [ // shared by Sold (Units/Value/Area) and Unsold (Units/Value/Area/Avg Rate) tiles
+  stockUnit: [ // Sold (Units/Value/Area) tiles
     {key:'project', label:'Project', align:'left'},
     {key:'subProject', label:'Sub Project', align:'left'},
     {key:'unitNo', label:'Unit No', align:'left'},
@@ -3413,6 +3449,18 @@ const KPI_DRILL_COLUMNS = {
     {key:'bookingDate', label:'Booking Date', align:'left'},
     {key:'amount', label:'Amount', fmt:fmtINRCr},
     {key:'status', label:'Status', align:'left'},
+  ],
+  stockUnitAvail: [ // Unsold (Units/Listed/MSP/Area/Avg Rate) tiles — adds the MSP figure alongside the
+    // Listed amount so a single click-through shows both prices for every unsold unit at once. Older
+    // uploads without the MSP column just render '—' / a blank export cell here, same as any other
+    // genuinely-absent optional field.
+    {key:'project', label:'Project', align:'left'},
+    {key:'subProject', label:'Sub Project', align:'left'},
+    {key:'unitNo', label:'Unit No', align:'left'},
+    {key:'unitType', label:'Unit Type', align:'left'},
+    {key:'area', label:'Area (sq.ft)', fmt:fmtNum},
+    {key:'amount', label:'Amount (Listed)', fmt:fmtINRCr},
+    {key:'amountMSP', label:'Amount (MSP)', fmt:fmtINRCr},
   ],
   booking: [
     {key:'project', label:'Project', align:'left'},
@@ -3467,7 +3515,7 @@ function getKpiDrillConfig(key){
   switch(key){
     case 'projects': return { columns: KPI_DRILL_COLUMNS.projects, rows: masterData.filter(m=>m.totalUnits>0) };
     case 'sold': return { columns: KPI_DRILL_COLUMNS.stockUnit, rows: kpiDrillData.sold || [] };
-    case 'avail': return { columns: KPI_DRILL_COLUMNS.stockUnit, rows: kpiDrillData.avail || [] };
+    case 'avail': return { columns: KPI_DRILL_COLUMNS.stockUnitAvail, rows: kpiDrillData.avail || [] };
     case 'bookingBacklog': return { columns: KPI_DRILL_COLUMNS.booking, rows: kpiDrillData.bookingBacklog || [] };
     case 'bookingPeriod': return { columns: KPI_DRILL_COLUMNS.booking, rows: bookingData };
     case 'agreementBacklog': return { columns: KPI_DRILL_COLUMNS.agreement, rows: kpiDrillData.agreementBacklog || [] };
