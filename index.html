@@ -281,6 +281,30 @@
   .kpi .val{font-family:'Fraunces',serif;font-size:23px;font-weight:600;color:var(--navy);line-height:1.1;}
   .kpi .sub{font-size:11.5px;color:var(--muted);margin-top:6px;}
   .kpi .sub b{color:var(--ink);}
+  /* A tile with data-drill is clickable — it opens the KPI drill-down modal with the records behind
+     its number. Tiles without a mapped drill-down (none currently, but kept defensive) get no attribute
+     and stay non-interactive. */
+  .kpi[data-drill]{cursor:pointer;transition:box-shadow .15s,border-color .15s;}
+  .kpi[data-drill]:hover{box-shadow:0 4px 14px rgba(20,30,60,.10);border-color:var(--gold);}
+  .kpi[data-drill]:hover::after{content:"View records \2192";position:absolute;right:12px;bottom:10px;font-size:10.5px;font-weight:600;color:var(--gold);}
+  /* ---- KPI drill-down modal: click a tile above to see the unit-level records behind its number,
+     with a Download Excel button to export exactly that list. ---- */
+  .modal-overlay{position:fixed;inset:0;background:rgba(15,20,35,.5);z-index:100;display:none;align-items:center;justify-content:center;padding:24px;}
+  .modal-box{background:var(--card);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.25);width:100%;max-width:980px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;}
+  .modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:18px 22px;border-bottom:1px solid var(--border);}
+  .modal-header h3{margin:0 0 4px;font-family:'Fraunces',serif;font-size:19px;color:var(--navy);}
+  .modal-sub{font-size:12.5px;color:var(--muted);}
+  .modal-close{appearance:none;border:none;background:transparent;font-size:22px;line-height:1;color:var(--muted);cursor:pointer;padding:2px 6px;border-radius:6px;flex-shrink:0;}
+  .modal-close:hover{background:var(--navy-pale);color:var(--navy);}
+  .modal-body{overflow:auto;padding:0 22px;flex:1;}
+  .modal-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .modal-table thead th{position:sticky;top:0;background:var(--card);text-align:right;padding:9px 8px;border-bottom:2px solid var(--border);color:var(--navy);font-weight:700;white-space:nowrap;}
+  .modal-table thead th:first-child{text-align:left;}
+  .modal-table tbody td{padding:7px 8px;border-bottom:1px solid var(--border);white-space:nowrap;}
+  .modal-table tbody tr:hover{background:var(--navy-pale);}
+  .modal-empty{text-align:center !important;color:var(--muted);padding:24px 8px !important;}
+  .modal-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 22px;border-top:1px solid var(--border);}
+  .modal-count{font-size:12px;color:var(--muted);}
   .chart-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:18px;}
   .chart-grid.one{grid-template-columns:1fr;}
   @media (max-width:900px){.chart-grid{grid-template-columns:1fr;}}
@@ -681,6 +705,29 @@
         <option value="admin">Admin</option>
       </select>
       <button class="btn btn-primary" id="preAssignBtn" type="button">Assign</button>
+    </div>
+  </div>
+</div>
+<!-- KPI drill-down modal — opened by clicking any clickable tile in "All Key Metrics"; shows the
+     unit-level records behind that tile's number, with a Download Excel button for that same list. -->
+<div class="modal-overlay" id="kpiDrillOverlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div>
+        <h3 id="kpiDrillTitle"></h3>
+        <div class="modal-sub" id="kpiDrillSub"></div>
+      </div>
+      <button type="button" class="modal-close" id="kpiDrillClose" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <table class="modal-table">
+        <thead><tr id="kpiDrillThead"></tr></thead>
+        <tbody id="kpiDrillTbody"></tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <span class="modal-count" id="kpiDrillCount"></span>
+      <button type="button" class="btn btn-primary" id="kpiDrillDownload">Download Excel</button>
     </div>
   </div>
 </div>
@@ -1171,6 +1218,18 @@ let bookingMonthData = [];
 let soldValueByProjectAllTime = {}; // project-only view, used by Collection's Outstanding Balance (Sheet6 has no dates to match FY/Month against)
 let collectionPeriodTotal = 0;       // Collected amount matching the current Project+FY+Month filter (from Sheet1 receipts)
 let collectionPeriodByProject = {};  // same, broken down by project
+// ---- KPI tile drill-down (click a tile on "All Key Metrics" to see its underlying records + Download
+// Excel) — soldUnitData/availUnitData/agreementSignedRows/agreementRegisteredRows are the unit-level
+// record sets already computed for their KPI number, just kept around so the drill-down modal can list
+// them without re-deriving the same filter logic in a second place. kpiDrillData holds a few extra
+// row sets that are cheap to keep only where they're already computed (gross-mode Sold, Booking/
+// Agreement backlogs, the Outstanding Balance estimate-vs-report branch) — see each render*Page()
+// function for where it's populated. Every entry always reflects whatever's currently on screen.
+let soldUnitData = [];
+let availUnitData = [];
+let agreementSignedRows = [];
+let agreementRegisteredRows = [];
+let kpiDrillData = {};
 let charts = {};
 function readFileAsWB(file){
   return new Promise((resolve,reject)=>{
@@ -1995,6 +2054,7 @@ function applyFiltersAndRender(){
   const availRecs = RAW.stockUnitRecords.filter(r=>r.status==='Available');
   const soldFiltered = filterFull(soldRecs, 'bookingDate');           // respects Project + FY + Month
   const availFiltered = filterProjectOnly(availRecs);                 // snapshot — Project only
+  soldUnitData = soldFiltered; availUnitData = availFiltered;         // cached for the KPI drill-down modal
   const { value: valueSold, units: soldUnitCounts, area: soldAreaSums } = aggregateStockValue(soldFiltered);
   const { value: valueAvail } = aggregateStockValue(availFiltered);
   // Unsold (Available) broken down by physical location and by property type (Apartment/Plot) —
@@ -2046,6 +2106,7 @@ function applyFiltersAndRender(){
   agreementSignedValue = signedRecords.reduce((a,r)=>a+(r.agreementValue||0),0);
   agreementRegisteredCount = registeredRecords.length;
   agreementRegisteredValue = registeredRecords.reduce((a,r)=>a+(r.agreementValue||0),0);
+  agreementSignedRows = signedRecords; agreementRegisteredRows = registeredRecords; // cached for the KPI drill-down modal
   // "Yet to Sign" / "Yet to be Registered" — units booked within the selected Project + FY + Month
   // (by Booking Date, same basis as Units Tracked) whose Agreement/Regn Date is still blank as of now.
   const yetToSignRecords = filterFull(RAW.agreementRecords, 'bookingDate').filter(r=>r.agreementDate === '');
@@ -2251,11 +2312,11 @@ function renderKPIs(){
   const displaySoldUnits = showGross ? t.soldUnits + genuineCancelledUnits : t.soldUnits;
   const periodTotalUnits = displaySoldUnits + t.availUnits + t.blockedUnits;
   const cards = [
-    {lbl:'Projects', val: t.projects, sub: `${masterData.filter(m=>m.totalUnits>0).length} with active stock`},
-    {lbl:'Total Units', val: fmtNum(periodTotalUnits), sub: `<b class="pos">${fmtNum(displaySoldUnits)}</b> sold &middot; ${fmtNum(t.availUnits)} unsold`},
+    {lbl:'Projects', key:'projects', val: t.projects, sub: `${masterData.filter(m=>m.totalUnits>0).length} with active stock`},
+    {lbl:'Total Units', key:'projects', val: fmtNum(periodTotalUnits), sub: `<b class="pos">${fmtNum(displaySoldUnits)}</b> sold &middot; ${fmtNum(t.availUnits)} unsold`},
   ];
   document.getElementById('kpiGrid').innerHTML = cards.map(c=>`
-    <div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>
+    <div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>
   `).join('');
 }
 function renderHero(){
@@ -2445,11 +2506,20 @@ function renderSoldPage(){
   // so this tile actually moves with the toggle instead of always showing the net figure.
   const displayArea = showGross ? soldArea + genuineCancelledArea : soldArea;
   const soldAreaSub = showGross ? `Incl. ${fmtNum(genuineCancelledArea)} sq.ft from genuinely-cancelled bookings` : 'Saleable area sold';
+  // Cached for the KPI drill-down modal so Sold Units/Sales Value/Sold Area all open the exact unit
+  // list behind the number currently on screen — including the genuinely-cancelled units when "All
+  // Bookings (Including Cancelled)" is active, same units the toggle above already adds into the tiles.
+  kpiDrillData.sold = showGross
+    ? soldUnitData.concat(filterFull(RAW.cancellationRecords.filter(r=>r.isGenuine), 'bookingDate').map(r=>({
+        project:r.project, subProject:r.subProject, unitNo:r.unitNo, unitType:'', bookingDate:r.bookingDate,
+        area:r.unitArea, amount:r.unitValue, status:'Cancelled (added back)',
+      })))
+    : soldUnitData;
   document.getElementById('kpiGridSold').innerHTML = [
-    {lbl:'Sold Units', val: fmtNum(displayUnits), sub: showGross ? `across ${masterData.filter(m=>m.soldUnits>0).length} projects, incl. cancellations` : `across ${masterData.filter(m=>m.soldUnits>0).length} projects`},
-    {lbl:'Sales Value', val: fmtINRCr(displayValue), sub: soldValueSub},
-    {lbl:'Sold Area', val: fmtNum(displayArea)+' sq.ft', sub: soldAreaSub},
-  ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+    {lbl:'Sold Units', key:'sold', val: fmtNum(displayUnits), sub: showGross ? `across ${masterData.filter(m=>m.soldUnits>0).length} projects, incl. cancellations` : `across ${masterData.filter(m=>m.soldUnits>0).length} projects`},
+    {lbl:'Sales Value', key:'sold', val: fmtINRCr(displayValue), sub: soldValueSub},
+    {lbl:'Sold Area', key:'sold', val: fmtNum(displayArea)+' sq.ft', sub: soldAreaSub},
+  ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
   // Sold value by project (top 15)
@@ -2498,12 +2568,13 @@ function renderSoldPage(){
 function renderAvailablePage(){
   const t = grandTotals();
   const availArea = masterData.reduce((a,m)=>a+(m.availArea||0),0);
+  kpiDrillData.avail = availUnitData; // cached for the KPI drill-down modal
   document.getElementById('kpiGridAvail').innerHTML = [
-    {lbl:'Unsold Units', val: fmtNum(t.availUnits), sub:`across ${masterData.filter(m=>m.availUnits>0).length} projects`},
-    {lbl:'Unsold Value', val: fmtINRCr(t.availValue), sub:'Unsold inventory at current rates'},
-    {lbl:'Unsold Area', val: fmtNum(availArea)+' sq.ft', sub:'Saleable area unsold'},
-    {lbl:'Avg Rate', val: availArea ? '₹'+Math.round(t.availValue/availArea).toLocaleString('en-IN') : '—', sub:'per sq.ft, unsold stock'},
-  ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+    {lbl:'Unsold Units', key:'avail', val: fmtNum(t.availUnits), sub:`across ${masterData.filter(m=>m.availUnits>0).length} projects`},
+    {lbl:'Unsold Value', key:'avail', val: fmtINRCr(t.availValue), sub:'Unsold inventory at current rates'},
+    {lbl:'Unsold Area', key:'avail', val: fmtNum(availArea)+' sq.ft', sub:'Saleable area unsold'},
+    {lbl:'Avg Rate', key:'avail', val: availArea ? '₹'+Math.round(t.availValue/availArea).toLocaleString('en-IN') : '—', sub:'per sq.ft, unsold stock'},
+  ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
   const byAvail = [...masterData].filter(m=>m.availValue>0).sort((a,b)=>b.availValue-a.availValue).slice(0,15);
@@ -2588,16 +2659,20 @@ function renderAgreementPage(){
   const backlogYetToSignValue = backlogYetToSign.reduce((a,r)=>a+(r.agreementValue||0),0);
   const backlogYetToRegister = agreementBacklog.filter(r=>r.regnDate === '');
   const backlogYetToRegisterValue = backlogYetToRegister.reduce((a,r)=>a+(r.agreementValue||0),0);
+  // Cached for the KPI drill-down modal — each tile below opens the exact unit list its number is built from.
+  kpiDrillData.agreementBacklog = agreementBacklog;
+  kpiDrillData.yetToSign = backlogYetToSign;
+  kpiDrillData.yetToRegister = backlogYetToRegister;
   const backlogCards = [
-    {lbl:'Units Tracked', val: fmtNum(backlogTotal), sub:`Units booked ${fmtNum(backlogBookedMatched)} and in abeyance ${fmtNum(backlogInAbeyance)} &middot; all-time for current Project`},
-    {lbl:'Yet to Sign', val: fmtNum(backlogYetToSign.length), sub: `${fmtINRCr(backlogYetToSignValue)} booking value &middot; current backlog, all-time`},
-    {lbl:'Yet to be Registered', val: fmtNum(backlogYetToRegister.length), sub: `${fmtINRCr(backlogYetToRegisterValue)} booking value &middot; current backlog, all-time`},
-  ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+    {lbl:'Units Tracked', key:'agreementBacklog', val: fmtNum(backlogTotal), sub:`Units booked ${fmtNum(backlogBookedMatched)} and in abeyance ${fmtNum(backlogInAbeyance)} &middot; all-time for current Project`},
+    {lbl:'Yet to Sign', key:'yetToSign', val: fmtNum(backlogYetToSign.length), sub: `${fmtINRCr(backlogYetToSignValue)} booking value &middot; current backlog, all-time`},
+    {lbl:'Yet to be Registered', key:'yetToRegister', val: fmtNum(backlogYetToRegister.length), sub: `${fmtINRCr(backlogYetToRegisterValue)} booking value &middot; current backlog, all-time`},
+  ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const periodLabel = periodFilterActive() ? 'Signed / registered in the selected period' : 'Signed / registered (no period selected — all-time)';
   const periodCards = [
-    {lbl:'Total Agreement Signed', val: fmtNum(agreementSignedCount), sub: `${fmtINRCr(agreementSignedValue)} booking value &middot; by Agreement Date`},
-    {lbl:'Total Unit Registered', val: fmtNum(agreementRegisteredCount), sub: `${fmtINRCr(agreementRegisteredValue)} booking value &middot; by Regn Date`},
-  ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+    {lbl:'Total Agreement Signed', key:'agreementSigned', val: fmtNum(agreementSignedCount), sub: `${fmtINRCr(agreementSignedValue)} booking value &middot; by Agreement Date`},
+    {lbl:'Total Unit Registered', key:'agreementRegistered', val: fmtNum(agreementRegisteredCount), sub: `${fmtINRCr(agreementRegisteredValue)} booking value &middot; by Regn Date`},
+  ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   document.getElementById('kpiGridAgreement').innerHTML = backlogCards +
     `<div class="kpi-group-label">${periodLabel}</div>` + periodCards;
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
@@ -2735,11 +2810,16 @@ function renderCollectionPage(){
   // reads as 0 with a prompt to upload it otherwise.
   const netDueAsPerStage = hasOutstandingReport ? outstandingData.reduce((a,r)=>a+(r.netDue||0),0) : 0;
   const debtorAgeingSub = hasOutstandingReport ? 'Demands raised till date' : 'Upload Debtor Ageing Report (Summary)';
+  // Cached for the KPI drill-down modal. Outstanding Balance shows the same per-unit Debtor Ageing
+  // Report rows as Net Due as per Stage when that report is uploaded (both figures are just different
+  // sums off the same rows); otherwise it falls back to the project-level Sold-minus-Collected estimate.
+  kpiDrillData.collectionTotal = collectionData;
+  kpiDrillData.outstandingEstimate = outstandingByProject;
   document.getElementById('kpiGridCollection').innerHTML = [
-    {lbl:'Total Collected', val: fmtINRCr(totalCollected), sub: (periodActive ? 'Received in the selected period' : `${fmtNum(unitsRecorded)} units with collection recorded`) + ', including Govt charges and Registrations'},
-    {lbl:'Net Due as per Stage', val: fmtINRCr(netDueAsPerStage), sub: debtorAgeingSub},
-    {lbl:'Outstanding Balance', val: fmtINRCr(outstandingTotal), sub: outstandingSub},
-  ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+    {lbl:'Total Collected', key:'collectionTotal', val: fmtINRCr(totalCollected), sub: (periodActive ? 'Received in the selected period' : `${fmtNum(unitsRecorded)} units with collection recorded`) + ', including Govt charges and Registrations'},
+    {lbl:'Net Due as per Stage', key:'outstanding', val: fmtINRCr(netDueAsPerStage), sub: debtorAgeingSub},
+    {lbl:'Outstanding Balance', key: hasOutstandingReport ? 'outstanding' : 'outstandingEstimate', val: fmtINRCr(outstandingTotal), sub: outstandingSub},
+  ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
@@ -2896,10 +2976,11 @@ function renderBookingPage(){
   // Booked is folded into the "Units Tracked" tile (Agreement Register grid), and Total Booking Value
   // is folded into the "Sales Value" tile (Sold grid) as its split "Total booking value + in abeyance"
   // sub-text, so neither sits as an unexplained extra number next to Sold Units / Sales Value.
+  kpiDrillData.bookingBacklog = bookingBacklog; // cached for the KPI drill-down modal
   document.getElementById('kpiGridBookings').innerHTML = [
-    {lbl:'Avg Booking Value', val: fmtINRCr(backlogAvgValue), sub:'per unit booked &middot; all-time for current Project'},
-    {lbl:'Months Covered', val: fmtNum(bookingMonthData.length), sub: bookingFYData.length ? `${bookingFYData[0].label} to ${bookingFYData[bookingFYData.length-1].label}` : ''},
-  ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+    {lbl:'Avg Booking Value', key:'bookingBacklog', val: fmtINRCr(backlogAvgValue), sub:'per unit booked &middot; all-time for current Project'},
+    {lbl:'Months Covered', key:'bookingPeriod', val: fmtNum(bookingMonthData.length), sub: bookingFYData.length ? `${bookingFYData[0].label} to ${bookingFYData[bookingFYData.length-1].label}` : ''},
+  ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
@@ -3306,6 +3387,148 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(crmExport), 'CRM Project Summary');
   }
   XLSX.writeFile(wb, 'MP_Developers_All_Data_' + new Date().toISOString().slice(0,10) + '.xlsx');
+});
+/* ============ KPI TILE DRILL-DOWN (click a tile on "All Key Metrics" -> records + Download Excel) ============ */
+// Column sets are shared across every tile backed by the same record shape (e.g. all 3 Sold tiles list
+// the same Sold unit rows, just emphasising a different sum) — see getKpiDrillConfig for which key each
+// tile's data-drill attribute maps to, and each render*Page() function above for where kpiDrillData /
+// agreementSignedRows / agreementRegisteredRows are kept current with whatever's on screen.
+const KPI_DRILL_COLUMNS = {
+  projects: [
+    {key:'project', label:'Project', align:'left'},
+    {key:'totalUnits', label:'Total Units', fmt:fmtNum},
+    {key:'soldUnits', label:'Sold Units', fmt:fmtNum},
+    {key:'availUnits', label:'Unsold Units', fmt:fmtNum},
+    {key:'blockedUnits', label:'Blocked Units', fmt:fmtNum},
+    {key:'soldValue', label:'Sold Value', fmt:fmtINRCr},
+    {key:'availValue', label:'Unsold Value', fmt:fmtINRCr},
+    {key:'totalValue', label:'Total Value', fmt:fmtINRCr},
+  ],
+  stockUnit: [ // shared by Sold (Units/Value/Area) and Unsold (Units/Value/Area/Avg Rate) tiles
+    {key:'project', label:'Project', align:'left'},
+    {key:'subProject', label:'Sub Project', align:'left'},
+    {key:'unitNo', label:'Unit No', align:'left'},
+    {key:'unitType', label:'Unit Type', align:'left'},
+    {key:'area', label:'Area (sq.ft)', fmt:fmtNum},
+    {key:'bookingDate', label:'Booking Date', align:'left'},
+    {key:'amount', label:'Amount', fmt:fmtINRCr},
+    {key:'status', label:'Status', align:'left'},
+  ],
+  booking: [
+    {key:'project', label:'Project', align:'left'},
+    {key:'subProject', label:'Sub Project', align:'left'},
+    {key:'unitNo', label:'Unit No', align:'left'},
+    {key:'customer', label:'Customer', align:'left'},
+    {key:'bookingDate', label:'Booking Date', align:'left'},
+    {key:'unitType', label:'Unit Type', align:'left'},
+    {key:'area', label:'Area (sq.ft)', fmt:fmtNum},
+    {key:'bookingValue', label:'Booking Value', fmt:fmtINRCr},
+  ],
+  agreement: [
+    {key:'project', label:'Project', align:'left'},
+    {key:'subProject', label:'Sub Project', align:'left'},
+    {key:'unitNo', label:'Unit No', align:'left'},
+    {key:'customer', label:'Customer', align:'left'},
+    {key:'bookingDate', label:'Booking Date', align:'left'},
+    {key:'agreementDate', label:'Agreement Date', align:'left'},
+    {key:'agreementValue', label:'Agreement Value', fmt:fmtINRCr},
+    {key:'recvdExctd', label:'Recvd & Exctd Date', align:'left'},
+    {key:'regnDate', label:'Regn Date', align:'left'},
+    {key:'possessionDate', label:'Possession Date', align:'left'},
+    {key:'unitStatus', label:'Unit Status', align:'left'},
+  ],
+  collection: [
+    {key:'project', label:'Project', align:'left'},
+    {key:'subProject', label:'Sub Project', align:'left'},
+    {key:'unitNo', label:'Unit No', align:'left'},
+    {key:'customer', label:'Customer', align:'left'},
+    {key:'total', label:'Total Collected', fmt:fmtINRCr},
+  ],
+  outstanding: [
+    {key:'project', label:'Project', align:'left'},
+    {key:'subProject', label:'Sub Project', align:'left'},
+    {key:'unitNo', label:'Unit No', align:'left'},
+    {key:'customer', label:'Customer', align:'left'},
+    {key:'status', label:'Status', align:'left'},
+    {key:'totalCost', label:'Total Cost', fmt:fmtINRCr},
+    {key:'dueAsOnDay', label:'Total Stage Due', fmt:fmtINRCr},
+    {key:'totalReceived', label:'Total Received', fmt:fmtINRCr},
+    {key:'netDue', label:'Net Due as per Stage', fmt:fmtINRCr},
+    {key:'netReceivable', label:'Outstanding', fmt:fmtINRCr},
+  ],
+  outstandingEstimate: [
+    {key:'project', label:'Project', align:'left'},
+    {key:'soldValue', label:'Sold Value', fmt:fmtINRCr},
+    {key:'collected', label:'Collected', fmt:fmtINRCr},
+    {key:'outstanding', label:'Outstanding (Estimated)', fmt:fmtINRCr},
+  ],
+};
+function getKpiDrillConfig(key){
+  switch(key){
+    case 'projects': return { columns: KPI_DRILL_COLUMNS.projects, rows: masterData.filter(m=>m.totalUnits>0) };
+    case 'sold': return { columns: KPI_DRILL_COLUMNS.stockUnit, rows: kpiDrillData.sold || [] };
+    case 'avail': return { columns: KPI_DRILL_COLUMNS.stockUnit, rows: kpiDrillData.avail || [] };
+    case 'bookingBacklog': return { columns: KPI_DRILL_COLUMNS.booking, rows: kpiDrillData.bookingBacklog || [] };
+    case 'bookingPeriod': return { columns: KPI_DRILL_COLUMNS.booking, rows: bookingData };
+    case 'agreementBacklog': return { columns: KPI_DRILL_COLUMNS.agreement, rows: kpiDrillData.agreementBacklog || [] };
+    case 'yetToSign': return { columns: KPI_DRILL_COLUMNS.agreement, rows: kpiDrillData.yetToSign || [] };
+    case 'yetToRegister': return { columns: KPI_DRILL_COLUMNS.agreement, rows: kpiDrillData.yetToRegister || [] };
+    case 'agreementSigned': return { columns: KPI_DRILL_COLUMNS.agreement, rows: agreementSignedRows };
+    case 'agreementRegistered': return { columns: KPI_DRILL_COLUMNS.agreement, rows: agreementRegisteredRows };
+    case 'collectionTotal': return { columns: KPI_DRILL_COLUMNS.collection, rows: kpiDrillData.collectionTotal || [] };
+    case 'outstanding': return { columns: KPI_DRILL_COLUMNS.outstanding, rows: outstandingData };
+    case 'outstandingEstimate': return { columns: KPI_DRILL_COLUMNS.outstandingEstimate, rows: kpiDrillData.outstandingEstimate || [] };
+    default: return null;
+  }
+}
+let kpiDrillCurrent = null; // {title, columns, rows} for whatever's currently open — read by the Download Excel button
+function openKpiDrill(tileEl, key){
+  const config = getKpiDrillConfig(key);
+  if(!config) return;
+  const lblEl = tileEl.querySelector('.lbl');
+  const subEl = tileEl.querySelector('.sub');
+  const title = lblEl ? lblEl.textContent : 'Details';
+  const sub = subEl ? subEl.textContent : '';
+  kpiDrillCurrent = { title, columns: config.columns, rows: config.rows };
+  document.getElementById('kpiDrillTitle').textContent = title;
+  document.getElementById('kpiDrillSub').textContent = sub;
+  document.getElementById('kpiDrillThead').innerHTML = config.columns.map(c=>`<th style="text-align:${c.align||'right'}">${c.label}</th>`).join('');
+  document.getElementById('kpiDrillTbody').innerHTML = config.rows.length
+    ? config.rows.map(r=>'<tr>'+config.columns.map(c=>{
+        const v = r[c.key];
+        const display = c.fmt ? c.fmt(v) : (v===null||v===undefined||v===''?'—':v);
+        return `<td style="text-align:${c.align||'right'}">${display}</td>`;
+      }).join('')+'</tr>').join('')
+    : `<tr><td colspan="${config.columns.length}" class="modal-empty">No records for the current filter.</td></tr>`;
+  document.getElementById('kpiDrillCount').textContent = config.rows.length ? `${config.rows.length.toLocaleString('en-IN')} record${config.rows.length===1?'':'s'}` : '';
+  document.getElementById('kpiDrillDownload').disabled = !config.rows.length;
+  document.getElementById('kpiDrillOverlay').style.display = 'flex';
+}
+function closeKpiDrill(){
+  document.getElementById('kpiDrillOverlay').style.display = 'none';
+  kpiDrillCurrent = null;
+}
+document.getElementById('kpiGridMaster').addEventListener('click', (e)=>{
+  const tile = e.target.closest('.kpi');
+  if(!tile || !tile.dataset.drill) return;
+  openKpiDrill(tile, tile.dataset.drill);
+});
+document.getElementById('kpiDrillClose').addEventListener('click', closeKpiDrill);
+document.getElementById('kpiDrillOverlay').addEventListener('click', (e)=>{ if(e.target.id==='kpiDrillOverlay') closeKpiDrill(); });
+document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeKpiDrill(); });
+document.getElementById('kpiDrillDownload').addEventListener('click', ()=>{
+  if(!kpiDrillCurrent || !kpiDrillCurrent.rows.length) return;
+  const { title, columns, rows } = kpiDrillCurrent;
+  const exportRows = rows.map(r=>{
+    const o = {};
+    columns.forEach(c=>{ const v = r[c.key]; o[c.label] = (v === undefined || v === null) ? '' : v; });
+    return o;
+  });
+  const wb = XLSX.utils.book_new();
+  const sheetName = title.replace(/[\\\/\?\*\[\]:]/g,'').slice(0,31) || 'Data';
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(exportRows), sheetName);
+  const fileName = 'MP_Developers_' + (title.replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'_') || 'KPI_Data') + '_' + new Date().toISOString().slice(0,10) + '.xlsx';
+  XLSX.writeFile(wb, fileName);
 });
 </script>
 </div>
