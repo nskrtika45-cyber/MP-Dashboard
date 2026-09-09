@@ -2919,6 +2919,12 @@ function renderCollectionPage(){
   const hasOutstandingReport = outstandingData.length > 0;
   let outstandingTotal, outstandingByProject, outstandingSub, asOnDateLabel;
   let projDetailByProject = {}; // project -> {units, totalCost, totalReceived, outstanding} — only when hasOutstandingReport
+  // Units the ERP has flagged Status = "In Abeyance" — a cancellation is under way but not yet
+  // finalized, so the unit still carries a real outstanding balance today and Total Outstanding above
+  // correctly still includes it. Broken out into its own tile below (rather than netted out of
+  // Outstanding Balance) so these "yet to be cancelled" units are visible as their own line instead of
+  // sitting invisibly inside the main total, since they may still resolve either way.
+  let inAbeyanceRows = [], inAbeyanceTotal = 0;
   if(hasOutstandingReport){
     let netReceivableSum = 0;
     outstandingData.forEach(r=>{
@@ -2930,7 +2936,11 @@ function renderCollectionPage(){
     outstandingByProject = Object.entries(projDetailByProject).map(([project,d])=>({project, outstanding:d.outstanding})).filter(p=>p.outstanding>0);
     outstandingTotal = netReceivableSum;
     asOnDateLabel = outstandingData[0].asOnDate;
-    outstandingSub = 'Total Outstanding — both new sales and CRM files';
+    inAbeyanceRows = outstandingData.filter(r => (r.status||'').trim().toLowerCase() === 'in abeyance');
+    inAbeyanceTotal = inAbeyanceRows.reduce((a,r)=>a+(r.netReceivable||0),0);
+    outstandingSub = inAbeyanceRows.length
+      ? `Total Outstanding — both new sales and CRM files &middot; incl. ${fmtINRCr(inAbeyanceTotal)} in abeyance, not yet cancelled`
+      : 'Total Outstanding — both new sales and CRM files';
   } else {
     const collectionProjects = Object.keys(projectTotals);
     let matchedSoldValue = 0;
@@ -2959,10 +2969,14 @@ function renderCollectionPage(){
   // sums off the same rows); otherwise it falls back to the project-level Sold-minus-Collected estimate.
   kpiDrillData.collectionTotal = collectionData;
   kpiDrillData.outstandingEstimate = outstandingByProject;
+  kpiDrillData.inAbeyance = inAbeyanceRows;
   document.getElementById('kpiGridCollection').innerHTML = [
     {lbl:'Total Collected', key:'collectionTotal', val: fmtINRCr(totalCollected), sub: (periodActive ? 'Received in the selected period' : `${fmtNum(unitsRecorded)} units with collection recorded`) + ', including Govt charges and Registrations'},
     {lbl:'Net Due as per Stage', key:'outstanding', val: fmtINRCr(netDueAsPerStage), sub: debtorAgeingSub},
     {lbl:'Outstanding Balance', key: hasOutstandingReport ? 'outstanding' : 'outstandingEstimate', val: fmtINRCr(outstandingTotal), sub: outstandingSub},
+    // Only shown once the Debtor Ageing Report is uploaded — that's the only source with a per-unit
+    // Status column, so "In Abeyance" can't be identified from the estimated fallback.
+    ...(hasOutstandingReport ? [{lbl:'In Abeyance', key:'inAbeyance', val: fmtNum(inAbeyanceRows.length), sub: `${fmtINRCr(inAbeyanceTotal)} outstanding &middot; cancellation pending, not yet finalized`}] : []),
   ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
@@ -3634,6 +3648,7 @@ function getKpiDrillConfig(key){
     case 'collectionTotal': return { columns: KPI_DRILL_COLUMNS.collection, rows: kpiDrillData.collectionTotal || [] };
     case 'outstanding': return { columns: KPI_DRILL_COLUMNS.outstanding, rows: outstandingData };
     case 'outstandingEstimate': return { columns: KPI_DRILL_COLUMNS.outstandingEstimate, rows: kpiDrillData.outstandingEstimate || [] };
+    case 'inAbeyance': return { columns: KPI_DRILL_COLUMNS.outstanding, rows: kpiDrillData.inAbeyance || [] };
     default: return null;
   }
 }
