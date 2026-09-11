@@ -966,16 +966,44 @@ function updateLastUpdatedBadge(){
   const filesNote = (lastPublished.files && lastPublished.files.length) ? ` <span class="muted-part">&middot; ${lastPublished.files.length} report${lastPublished.files.length>1?'s':''} uploaded</span>` : '';
   el.innerHTML = `<span class="dot"></span>Data as of ${formatTimestamp(lastPublished.at)}${filesNote}`;
 }
+// Each RAW_KEYS entry already gets its own Firestore document (see note above), but that alone
+// isn't enough — a single report's data can itself grow past Firestore's ~1MiB-per-document cap
+// as more bookings/collections accumulate month to month (this happened for real: Collection
+// Register data crossed the limit and every publish was failing silently — see FIRESTORE_CHUNK_MAX_BYTES
+// usage below). So on top of one-document-per-key, each key's JSON is also split into as many
+// byte-safe pieces as it takes, stored as chunk_<key>_0, chunk_<key>_1, etc., and reassembled on load.
+const FIRESTORE_CHUNK_MAX_BYTES = 900000; // comfortable margin under the ~1,048,487 byte ceiling Firestore reported
+function utf8ByteLength(str){ return new TextEncoder().encode(str).length; }
+function splitForFirestore(str, maxBytes){
+  const parts = [];
+  let i = 0;
+  const n = str.length;
+  if(n === 0) return [''];
+  while(i < n){
+    let end = Math.min(n, i + maxBytes); // chars; safe starting guess since most content is plain ASCII
+    while(end > i + 1 && utf8ByteLength(str.slice(i, end)) > maxBytes){
+      end = i + Math.max(1, Math.floor((end - i) * 0.9)); // shrink 10% at a time until it fits
+    }
+    parts.push(str.slice(i, end));
+    i = end;
+  }
+  return parts;
+}
 async function publishDashboardData(fileNames){
   const statusEl = document.getElementById('publishStatus');
   try{
     const generatedAt = new Date().toISOString();
     const sourceFiles = fileNames.filter(Boolean);
     const batch = db.batch();
-    batch.set(DASH_COL.doc('meta'), { generatedAt, sourceFiles });
+    const chunkCounts = {};
     RAW_KEYS.forEach(k=>{
-      batch.set(DASH_COL.doc('chunk_'+k), { data: JSON.stringify(RAW[k]) });
+      const parts = splitForFirestore(JSON.stringify(RAW[k]), FIRESTORE_CHUNK_MAX_BYTES);
+      chunkCounts[k] = parts.length;
+      parts.forEach((part, idx)=>{
+        batch.set(DASH_COL.doc(`chunk_${k}_${idx}`), { data: part });
+      });
     });
+    batch.set(DASH_COL.doc('meta'), { generatedAt, sourceFiles, chunkCounts });
     await batch.commit();
     lastPublished = { at: generatedAt, files: sourceFiles };
     updateLastUpdatedBadge();
@@ -1022,11 +1050,31 @@ async function tryLoadPublishedData(){
     const metaDoc = await DASH_COL.doc('meta').get();
     if(!metaDoc.exists) return false;
     const meta = metaDoc.data();
-    const chunkDocs = await Promise.all(RAW_KEYS.map(k => DASH_COL.doc('chunk_'+k).get()));
+    // chunkCounts (added alongside the byte-safe splitting in publishDashboardData) tells us how
+    // many chunk_<key>_<n> documents to read for each key. Its absence means this was published
+    // before that change existed — fall back to the single chunk_<key> document those old
+    // publishes used, so nothing breaks for data published before this fix went out.
+    const chunkCounts = meta.chunkCounts || {};
+    const reads = [];
+    RAW_KEYS.forEach(k=>{
+      const count = chunkCounts[k];
+      if(count){
+        for(let idx=0; idx<count; idx++) reads.push({ key:k, idx, ref: DASH_COL.doc(`chunk_${k}_${idx}`) });
+      } else {
+        reads.push({ key:k, idx:0, ref: DASH_COL.doc('chunk_'+k) }); // legacy pre-sharding format
+      }
+    });
+    const snaps = await Promise.all(reads.map(r => r.ref.get()));
+    const partsByKey = {};
+    for(let i=0;i<reads.length;i++){
+      const { key, idx } = reads[i];
+      if(!snaps[i].exists){ console.error('Missing data chunk:', key, idx); return false; }
+      if(!partsByKey[key]) partsByKey[key] = [];
+      partsByKey[key][idx] = snaps[i].data().data;
+    }
     const newRAW = {};
-    for(let i=0;i<RAW_KEYS.length;i++){
-      if(!chunkDocs[i].exists){ console.error('Missing data chunk:', RAW_KEYS[i]); return false; }
-      newRAW[RAW_KEYS[i]] = JSON.parse(chunkDocs[i].data().data);
+    for(const k of RAW_KEYS){
+      newRAW[k] = JSON.parse((partsByKey[k] || []).join(''));
     }
     RAW = newRAW;
     updateSectionVisibility();
