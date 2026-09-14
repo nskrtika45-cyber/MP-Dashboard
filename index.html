@@ -240,6 +240,9 @@
   .ms-option:hover{background:var(--navy-pale);}
   .ms-option input{margin:0;flex-shrink:0;}
   .ms-empty{padding:6px 8px;font-size:12.5px;color:var(--muted);}
+  .filter-busy{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:600;}
+  .filter-busy .spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--navy);animation:filterspin .6s linear infinite;}
+  @keyframes filterspin{to{transform:rotate(360deg);}}
   .filter-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 2px 22px;font-size:12px;}
   .filter-chip{background:var(--navy-pale);color:var(--navy);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-weight:600;}
   .filter-note{color:var(--muted);}
@@ -491,6 +494,7 @@
         </div>
       </div>
       <button class="btn btn-ghost" id="filterClear">Clear filters</button>
+      <span class="filter-busy" id="filterBusy" style="display:none;"><span class="spin"></span>Updating...</span>
     </div>
     <div class="filter-summary" id="filterSummary" style="display:none;"></div>
     <div class="section-title group"><h2>All Key Metrics</h2><div class="line"></div></div>
@@ -2385,9 +2389,26 @@ function renderFilterSummary(){
   el.innerHTML = chips.map(c=>`<span class="filter-chip">${c}</span>`).join('') +
     `<span class="filter-note">Applies to booking-dated activity. Unsold inventory and the Collection unit table stay at full history for the selected project. "By financial year" trend charts always show the full timeline for the selected project.</span>`;
 }
+// Applying a filter re-derives every KPI/table/chart from RAW and redraws all 19 Chart.js
+// instances (destroy + recreate each) — real work that, at current data volumes, is heavy enough
+// to notice. Because JS is single-threaded, calling that heavy work directly from the checkbox's
+// own 'change' handler blocks the main thread before the browser gets a chance to PAINT anything
+// — not even the checkbox's own tick mark or the "N selected" button label — so a single click can
+// look like the page has frozen rather than like it's working. deferHeavyRender() fixes the
+// perception (and lets the browser stay responsive) by: doing the cheap state updates and showing
+// a small "Updating..." indicator synchronously, then yielding to the browser for two animation
+// frames (enough for it to actually paint that state) before running the expensive recompute.
+function showFilterBusy(){ const el = document.getElementById('filterBusy'); if(el) el.style.display = 'inline-flex'; }
+function hideFilterBusy(){ const el = document.getElementById('filterBusy'); if(el) el.style.display = 'none'; }
+function deferHeavyRender(fn){
+  showFilterBusy();
+  requestAnimationFrame(()=> requestAnimationFrame(()=>{
+    try{ fn(); } finally { hideFilterBusy(); }
+  }));
+}
 document.getElementById('filterProject').addEventListener('change', function(){
   filterState.project = this.value;
-  applyFiltersAndRender();
+  deferHeavyRender(()=> applyFiltersAndRender());
 });
 document.getElementById('filterFYPanel').addEventListener('change', function(e){
   if(e.target.type !== 'checkbox') return;
@@ -2396,8 +2417,7 @@ document.getElementById('filterFYPanel').addEventListener('change', function(e){
   else { filterState.fy = filterState.fy.filter(v=>v!==val); }
   filterState.month = []; // the available Month options are scoped to the chosen FY set, so any previous Month picks may no longer be valid
   updateMultiSelectButtonLabel('filterFYBtn', fyOptionsList, filterState.fy, 'All Financial Years');
-  populateMonthOptions();
-  applyFiltersAndRender();
+  deferHeavyRender(()=>{ populateMonthOptions(); applyFiltersAndRender(); });
 });
 document.getElementById('filterMonthPanel').addEventListener('change', function(e){
   if(e.target.type !== 'checkbox') return;
@@ -2405,7 +2425,7 @@ document.getElementById('filterMonthPanel').addEventListener('change', function(
   if(e.target.checked){ if(!filterState.month.includes(val)) filterState.month.push(val); }
   else { filterState.month = filterState.month.filter(v=>v!==val); }
   updateMultiSelectButtonLabel('filterMonthBtn', monthOptionsList, filterState.month, 'All Months');
-  applyFiltersAndRender();
+  deferHeavyRender(()=> applyFiltersAndRender());
 });
 document.addEventListener('click', ()=>{
   document.querySelectorAll('.multiselect.open').forEach(w=>w.classList.remove('open'));
@@ -2415,8 +2435,7 @@ document.getElementById('filterClear').addEventListener('click', function(){
   document.getElementById('filterProject').value = '';
   renderMultiSelectOptions('filterFYPanel', fyOptionsList, filterState.fy);
   updateMultiSelectButtonLabel('filterFYBtn', fyOptionsList, filterState.fy, 'All Financial Years');
-  populateMonthOptions();
-  applyFiltersAndRender();
+  deferHeavyRender(()=>{ populateMonthOptions(); applyFiltersAndRender(); });
 });
 /* ============ FORMATTING ============ */
 function fmtINRCr(n){
