@@ -527,20 +527,6 @@
         <div class="chart-card"><h3>Unit stock status — all projects</h3><div class="wrap tall"><canvas id="chartStockDonut"></canvas></div></div>
         <div class="chart-card"><h3>Sold vs unsold area by project (top 15, sq.ft)</h3><div class="wrap tall"><canvas id="chartSoldAvailArea"></canvas></div></div>
       </div>
-      <div class="section-title"><h2>Unit Type Wise — Sold vs Unsold</h2><div class="line"></div></div>
-      <div class="table-toolbar">
-        <input type="text" id="unitTypeSearchBox" placeholder="Search project or unit type...">
-      </div>
-      <div class="table-card">
-        <div class="table-scroll">
-          <table id="unitTypeWiseTable">
-            <thead><tr id="unitTypeTheadRow"></tr></thead>
-            <tbody id="unitTypeTbody"></tbody>
-            <tfoot><tr id="unitTypeTfootRow"></tr></tfoot>
-          </table>
-        </div>
-      </div>
-      <span class="filter-note" id="unitTypeFilterNote"></span>
       <div class="section-title group" id="overviewBookingsHeader"><h2>Bookings</h2><div class="line"></div></div>
       <div id="overviewBookingsSection">
       <div class="section-title"><h2>Bookings by Project &amp; Financial Year</h2><div class="line"></div></div>
@@ -2258,7 +2244,8 @@ function applyFiltersAndRender(){
       if(!utMap[key]) utMap[key] = { project: r.project, unitType: (r.unitType && r.unitType.trim()) || 'Unspecified', sold: 0, unsold: 0 };
       utMap[key].unsold += 1;
     });
-    unitTypeWiseData = Object.values(utMap).map(r=>({ ...r, total: r.sold + r.unsold }));
+    unitTypeWiseData = Object.values(utMap).map(r=>({ ...r, total: r.sold + r.unsold }))
+      .sort((a,b)=> a.project.localeCompare(b.project) || a.unitType.localeCompare(b.unitType));
   }
   hasMSPData = RAW.stockUnitRecords.some(r => r.amountMSP !== undefined);
   const { value: valueSold, units: soldUnitCounts, area: soldAreaSums } = aggregateStockValue(soldFiltered);
@@ -2502,7 +2489,6 @@ function renderAll(){
   renderBookingPage();
   renderLocationWiseTable();
   renderPropertyWiseTable();
-  renderUnitTypeWiseTable();
 }
 function grandTotals(){
   return masterData.reduce((acc,m)=>{
@@ -2538,9 +2524,11 @@ function renderKPIs(){
   const showGross = hasCancellationReport && soldValueMode === 'gross';
   const displaySoldUnits = showGross ? t.soldUnits + genuineCancelledUnits : t.soldUnits;
   const periodTotalUnits = displaySoldUnits + t.availUnits + t.blockedUnits;
+  const unitTypeCount = new Set(unitTypeWiseData.map(r=>r.unitType)).size;
   const cards = [
     {lbl:'Projects', key:'projects', val: t.projects, sub: `${masterData.filter(m=>m.totalUnits>0).length} with active stock`},
     {lbl:'Total Units', key:'projects', val: fmtNum(periodTotalUnits), sub: `<b class="pos">${fmtNum(displaySoldUnits)}</b> sold &middot; ${fmtNum(t.availUnits)} unsold`},
+    {lbl:'Unit Types', key:'unitTypeWise', val: fmtNum(unitTypeCount), sub: 'Sold vs unsold by project &amp; unit type'},
   ];
   document.getElementById('kpiGrid').innerHTML = cards.map(c=>`
     <div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>
@@ -3385,24 +3373,6 @@ function renderPropertyWiseTable(){
     <td class="proj">Total</td><td>${fmtNum(t.units)}</td><td>${fmtINRFull(t.value)}</td><td>${fmtNum(t.area)}</td>
   `;
 }
-function renderUnitTypeWiseTable(){
-  renderGenericTable({
-    theadId:'unitTypeTheadRow', tbodyId:'unitTypeTbody', tfootId:'unitTypeTfootRow', searchId:'unitTypeSearchBox',
-    searchFields:['project','unitType'], sortStateKey:'unitTypeWise',
-    columns:[
-      {key:'project', label:'Project', align:'left'},
-      {key:'unitType', label:'Unit Type', align:'left', noSum:true},
-      {key:'sold', label:'Sold', fmt:fmtNum},
-      {key:'unsold', label:'Unsold', fmt:fmtNum},
-      {key:'total', label:'Total', fmt:fmtNum},
-    ],
-    rowsSource: unitTypeWiseData,
-    defaultSort:{key:'project', dir:1},
-    totalsLabel:'rows'
-  });
-  const noteEl = document.getElementById('unitTypeFilterNote');
-  if(noteEl) noteEl.textContent = 'Sold respects the Project / Financial Year / Month filters above. Unsold is always a current snapshot (unsold stock has no booking date to filter by) — same convention as the rest of the dashboard.';
-}
 /* ============ GENERIC TABLE (Sold / Available pages) ============ */
 const sortStates = {};
 function renderGenericTable(opts){
@@ -3756,6 +3726,13 @@ const KPI_DRILL_COLUMNS = {
     {key:'collected', label:'Collected', fmt:fmtINRCr},
     {key:'outstanding', label:'Outstanding (Estimated)', fmt:fmtINRCr},
   ],
+  unitTypeWise: [
+    {key:'project', label:'Project', align:'left'},
+    {key:'unitType', label:'Unit Type', align:'left'},
+    {key:'sold', label:'Sold', fmt:fmtNum},
+    {key:'unsold', label:'Unsold', fmt:fmtNum},
+    {key:'total', label:'Total', fmt:fmtNum},
+  ],
 };
 function getKpiDrillConfig(key){
   switch(key){
@@ -3773,6 +3750,7 @@ function getKpiDrillConfig(key){
     case 'outstanding': return { columns: KPI_DRILL_COLUMNS.outstanding, rows: outstandingData };
     case 'outstandingEstimate': return { columns: KPI_DRILL_COLUMNS.outstandingEstimate, rows: kpiDrillData.outstandingEstimate || [] };
     case 'inAbeyance': return { columns: KPI_DRILL_COLUMNS.outstanding, rows: kpiDrillData.inAbeyance || [] };
+    case 'unitTypeWise': return { columns: KPI_DRILL_COLUMNS.unitTypeWise, rows: unitTypeWiseData };
     default: return null;
   }
 }
