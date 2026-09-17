@@ -527,6 +527,20 @@
         <div class="chart-card"><h3>Unit stock status — all projects</h3><div class="wrap tall"><canvas id="chartStockDonut"></canvas></div></div>
         <div class="chart-card"><h3>Sold vs unsold area by project (top 15, sq.ft)</h3><div class="wrap tall"><canvas id="chartSoldAvailArea"></canvas></div></div>
       </div>
+      <div class="section-title"><h2>Unit Type Wise — Sold vs Unsold</h2><div class="line"></div></div>
+      <div class="table-toolbar">
+        <input type="text" id="unitTypeSearchBox" placeholder="Search project or unit type...">
+      </div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="unitTypeWiseTable">
+            <thead><tr id="unitTypeTheadRow"></tr></thead>
+            <tbody id="unitTypeTbody"></tbody>
+            <tfoot><tr id="unitTypeTfootRow"></tr></tfoot>
+          </table>
+        </div>
+      </div>
+      <span class="filter-note" id="unitTypeFilterNote"></span>
       <div class="section-title group" id="overviewBookingsHeader"><h2>Bookings</h2><div class="line"></div></div>
       <div id="overviewBookingsSection">
       <div class="section-title"><h2>Bookings by Project &amp; Financial Year</h2><div class="line"></div></div>
@@ -1346,6 +1360,7 @@ let agreementYetToSignCount = 0, agreementYetToSignValue = 0, agreementYetToRegi
 let soldValueMode = 'net'; // 'net' = current sold value as-is; 'gross' = net + genuine cancellations added back
 let locationWiseData = [];
 let propertyWiseData = [];
+let unitTypeWiseData = [];
 let bookingData = [];
 let bookingFYData = [];
 let bookingMonthData = [];
@@ -2227,6 +2242,24 @@ function applyFiltersAndRender(){
   const soldFiltered = filterFull(soldRecs, 'bookingDate');           // respects Project + FY + Month
   const availFiltered = filterProjectOnly(availRecs);                 // snapshot — Project only
   soldUnitData = soldFiltered; availUnitData = availFiltered;         // cached for the KPI drill-down modal
+  // Project x Unit Type breakdown (Plot, 2BHK, 3BHK, ...) — Sold count respects Project + FY + Month
+  // (same basis as soldFiltered above), Unsold stays a Project-only snapshot (same basis as
+  // availFiltered) since unsold stock has no transaction date to filter by.
+  {
+    const utMap = {};
+    const utKey = (project, unitType) => project + '||' + (unitType && String(unitType).trim() ? String(unitType).trim() : 'Unspecified');
+    soldFiltered.forEach(r=>{
+      const key = utKey(r.project, r.unitType);
+      if(!utMap[key]) utMap[key] = { project: r.project, unitType: (r.unitType && r.unitType.trim()) || 'Unspecified', sold: 0, unsold: 0 };
+      utMap[key].sold += 1;
+    });
+    availFiltered.forEach(r=>{
+      const key = utKey(r.project, r.unitType);
+      if(!utMap[key]) utMap[key] = { project: r.project, unitType: (r.unitType && r.unitType.trim()) || 'Unspecified', sold: 0, unsold: 0 };
+      utMap[key].unsold += 1;
+    });
+    unitTypeWiseData = Object.values(utMap).map(r=>({ ...r, total: r.sold + r.unsold }));
+  }
   hasMSPData = RAW.stockUnitRecords.some(r => r.amountMSP !== undefined);
   const { value: valueSold, units: soldUnitCounts, area: soldAreaSums } = aggregateStockValue(soldFiltered);
   const { value: valueAvail } = aggregateStockValue(availFiltered);
@@ -2469,6 +2502,7 @@ function renderAll(){
   renderBookingPage();
   renderLocationWiseTable();
   renderPropertyWiseTable();
+  renderUnitTypeWiseTable();
 }
 function grandTotals(){
   return masterData.reduce((acc,m)=>{
@@ -3351,6 +3385,24 @@ function renderPropertyWiseTable(){
     <td class="proj">Total</td><td>${fmtNum(t.units)}</td><td>${fmtINRFull(t.value)}</td><td>${fmtNum(t.area)}</td>
   `;
 }
+function renderUnitTypeWiseTable(){
+  renderGenericTable({
+    theadId:'unitTypeTheadRow', tbodyId:'unitTypeTbody', tfootId:'unitTypeTfootRow', searchId:'unitTypeSearchBox',
+    searchFields:['project','unitType'], sortStateKey:'unitTypeWise',
+    columns:[
+      {key:'project', label:'Project', align:'left'},
+      {key:'unitType', label:'Unit Type', align:'left', noSum:true},
+      {key:'sold', label:'Sold', fmt:fmtNum},
+      {key:'unsold', label:'Unsold', fmt:fmtNum},
+      {key:'total', label:'Total', fmt:fmtNum},
+    ],
+    rowsSource: unitTypeWiseData,
+    defaultSort:{key:'project', dir:1},
+    totalsLabel:'rows'
+  });
+  const noteEl = document.getElementById('unitTypeFilterNote');
+  if(noteEl) noteEl.textContent = 'Sold respects the Project / Financial Year / Month filters above. Unsold is always a current snapshot (unsold stock has no booking date to filter by) — same convention as the rest of the dashboard.';
+}
 /* ============ GENERIC TABLE (Sold / Available pages) ============ */
 const sortStates = {};
 function renderGenericTable(opts){
@@ -3544,6 +3596,11 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
   if(propertyWiseData.length){
     const propExport = propertyWiseData.map(r=>({ 'Property Type': r.property, 'Units': r.units, 'Value (₹)': r.value, 'Area (sq.ft)': r.area }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(propExport), 'Unsold - Property Wise');
+  }
+  // Unit Type Wise — Sold vs Unsold, per project
+  if(unitTypeWiseData.length){
+    const utExport = unitTypeWiseData.map(r=>({ 'Project': r.project, 'Unit Type': r.unitType, 'Sold': r.sold, 'Unsold': r.unsold, 'Total': r.total }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(utExport), 'Unit Type Wise');
   }
   // 4. Unit-wise Agreement Detail
   if(agreementData.length){
