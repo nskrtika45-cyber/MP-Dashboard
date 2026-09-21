@@ -455,10 +455,16 @@
         <div class="hint">ERP report name: "Customer Booking Cancellation Detail Report" &mdash; adds a Sold Value toggle — with vs. without genuine cancellations (Customer Requested + Due to Non Payment only)</div>
         <input type="file" id="file7" accept=".xlsx">
       </label>
+      <label class="drop" id="drop8">
+        <div class="label">8 &middot; Supplier Outstanding Report <span style="text-transform:none;font-weight:400;">(optional)</span></div>
+        <div class="fname" id="fname8">Click to choose file (.xlsx)</div>
+        <div class="hint">ERP report name: "Supplier Outstanding Report With Ageing" &mdash; adds the Purchase tab — vendor outstanding &amp; overdue ageing</div>
+        <input type="file" id="file8" accept=".xlsx">
+      </label>
     </div>
     <div class="btn-row">
       <button class="btn btn-primary" id="genBtn" disabled>Generate &amp; publish dashboard</button>
-      <span class="footer-note">Files 1 &amp; 2 are required each month; files 3–7 are optional and unlock extra tabs or detail. Publishing makes this visible to Management.</span>
+      <span class="footer-note">Files 1 &amp; 2 are required each month; files 3–8 are optional and unlock extra tabs or detail. Publishing makes this visible to Management.</span>
     </div>
     <div class="err" id="errMsg"></div>
     <div class="publish-status" id="publishStatus" style="display:none;"></div>
@@ -512,12 +518,14 @@
       <span id="kpiGridBookings" style="display:contents"></span>
       <span id="kpiGridAgreement" style="display:contents"></span>
       <span id="kpiGridCollection" style="display:contents"></span>
+      <span id="kpiGridPurchase" style="display:contents"></span>
     </div>
     <div class="tabs">
       <button class="tab-btn active" data-page="overview">Overview</button>
       <button class="tab-btn" data-page="sales">Sales</button>
       <button class="tab-btn" data-page="unsold">Unsold</button>
       <button class="tab-btn" data-page="crm" id="crmTabBtn" style="display:none;">CRM</button>
+      <button class="tab-btn" data-page="purchase" id="purchaseTabBtn" style="display:none;">Purchase</button>
     </div>
     <!-- ================= OVERVIEW PAGE ================= -->
     <div class="page" id="page-overview">
@@ -687,6 +695,32 @@
       </div>
       </div>
     </div>
+<!-- ================= PURCHASE PAGE (Supplier Outstanding Report With Ageing) ================= -->
+    <div class="page" id="page-purchase">
+      <div class="section-title group"><h2>Purchase</h2><div class="line"></div></div>
+      <p class="chart-note" style="margin:4px 2px 18px;">Built from the Supplier Outstanding Report With Ageing. Only vendor outstanding &amp; overdue ageing are shown here — Total Purchase Value, Current Stock Value, Open PO Value, Pending PR Value and Stock Issued Value need their own ERP reports (Purchase/PO Register, Stock Valuation, PR Register, Material Issue/GRN) which haven't been uploaded yet.</p>
+      <div class="section-title"><h2>Outstanding by Ageing</h2><div class="line"></div></div>
+      <div class="chart-grid">
+        <div class="chart-card"><h3>Outstanding by ageing bucket (₹ Cr)</h3><div class="wrap tall"><canvas id="chartPurchaseAgeing"></canvas></div></div>
+        <div class="chart-card"><h3>Top vendors by outstanding (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartPurchaseTopVendors"></canvas></div></div>
+      </div>
+      <div class="chart-grid one" style="margin-top:18px;">
+        <div class="chart-card"><h3>Top projects by vendor outstanding (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartPurchaseTopProjects"></canvas></div></div>
+      </div>
+      <div class="section-title"><h2>Invoice-wise Outstanding Detail</h2><div class="line"></div></div>
+      <div class="table-toolbar">
+        <input type="text" id="purchaseSearchBox" placeholder="Search vendor, project, invoice or PO...">
+      </div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table id="purchaseTable">
+            <thead><tr id="purchaseTheadRow"></tr></thead>
+            <tbody id="purchaseTbody"></tbody>
+            <tfoot><tr id="purchaseTfootRow"></tr></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
     </div>
   </div>
 </div>
@@ -767,7 +801,7 @@ const db = firebase.firestore();
 // Firestore caps each document at 1MiB. The combined RAW data can exceed that (it's already
 // ~1.4MB with 5 reports loaded), so each RAW.* array is stored as its own small document instead
 // of one big one — every individual piece has comfortable headroom to keep growing month to month.
-const RAW_KEYS = ['customerRecords','stockDict','stockUnitRecords','agreementRecords','collectionReceiptRecords','bookingRecords','outstandingRecords','cancellationRecords'];
+const RAW_KEYS = ['customerRecords','stockDict','stockUnitRecords','agreementRecords','collectionReceiptRecords','bookingRecords','outstandingRecords','cancellationRecords','purchaseOutstandingRecords'];
 // Project -> physical location & property type, as supplied by MP Developers (not derivable from
 // any ERP report). Projects not in this list show under "Unmapped" in the Location Wise view
 // rather than being silently dropped or guessed at — flag those to be added here as they come up.
@@ -1048,6 +1082,11 @@ function updateSectionVisibility(){
   const overviewBookingsSection = document.getElementById('overviewBookingsSection');
   if(overviewBookingsHeader) overviewBookingsHeader.style.display = hasBookings ? '' : 'none';
   if(overviewBookingsSection) overviewBookingsSection.style.display = hasBookings ? '' : 'none';
+  const hasPurchase = RAW.purchaseOutstandingRecords.length > 0;
+  const purchaseTabBtn = document.getElementById('purchaseTabBtn');
+  const purchasePage = document.getElementById('page-purchase');
+  if(purchaseTabBtn) purchaseTabBtn.style.display = hasPurchase ? '' : 'none';
+  if(purchasePage) purchasePage.style.display = hasPurchase ? '' : 'none';
 }
 async function tryLoadPublishedData(){
   try{
@@ -1299,7 +1338,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
 });
 // Keep the nav bar's active-state in sync with whichever section is actually in view while scrolling
 (function(){
-  const sections = ['overview','sales','unsold','crm']
+  const sections = ['overview','sales','unsold','crm','purchase']
     .map(name => ({ name, el: document.getElementById('page-'+name) }))
     .filter(s => s.el);
   if(!sections.length || !('IntersectionObserver' in window)) return;
@@ -1312,7 +1351,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
   }, { rootMargin: '-30% 0px -60% 0px', threshold: 0 });
   sections.forEach(s => observer.observe(s.el));
 })();
-let file1Data = null, file2Data = null, file3Data = null, file4Data = null, file5Data = null, file6Data = null, file7Data = null;
+let file1Data = null, file2Data = null, file3Data = null, file4Data = null, file5Data = null, file6Data = null, file7Data = null, file8Data = null;
 // RAW = unfiltered per-record data, parsed once when files load. Everything the dashboard renders
 // is derived from RAW by applyFiltersAndRender() so the Project / Financial Year / Month filters
 // can recompute every KPI, chart and table consistently instead of just hiding rows visually.
@@ -1325,6 +1364,7 @@ let RAW = {
   bookingRecords: [],          // Booking Report: project, bookingDate, value
   outstandingRecords: [],      // Debtor Ageing Report (Summary): project, unit, totalCost, dueAsOnDay, totalReceived, netDue, netReceivable (no dates — snapshot as-on-date)
   cancellationRecords: [],     // Customer Cancellation Report: project, bookingDate, unitValue, cancellationDate, reason
+  purchaseOutstandingRecords: [], // Supplier Outstanding Report With Ageing: vendor, project, invoice/PO detail, ageing buckets (no dates filtered against sales Project/FY/Month)
 };
 // fy/month are arrays — both Financial Year and Month support selecting more than one value at once
 // (see the multiselect widgets wired near the bottom of the file). An empty array means "All", same
@@ -1404,6 +1444,7 @@ wireDrop('drop4','file4','fname4', f=>{ file4Data = f; checkReady(); });
 wireDrop('drop5','file5','fname5', f=>{ file5Data = f; checkReady(); });
 wireDrop('drop6','file6','fname6', f=>{ file6Data = f; checkReady(); });
 wireDrop('drop7','file7','fname7', f=>{ file7Data = f; checkReady(); });
+wireDrop('drop8','file8','fname8', f=>{ file8Data = f; checkReady(); });
 function checkReady(){
   document.getElementById('genBtn').disabled = !(file1Data && file2Data);
 }
@@ -1447,11 +1488,17 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
     } else {
       RAW.cancellationRecords = [];
     }
+    if(file8Data){
+      const wb8 = await readFileAsWB(file8Data);
+      RAW.purchaseOutstandingRecords = parsePurchaseOutstanding(wb8);
+    } else {
+      RAW.purchaseOutstandingRecords = [];
+    }
     updateSectionVisibility();
     filterState = { project: '', fy: [], month: [] };
     populateFilterOptions();
     applyFiltersAndRender();
-    const fileNames = [file1Data.name, file2Data.name, file3Data && file3Data.name, file4Data && file4Data.name, file5Data && file5Data.name, file6Data && file6Data.name, file7Data && file7Data.name].filter(Boolean);
+    const fileNames = [file1Data.name, file2Data.name, file3Data && file3Data.name, file4Data && file4Data.name, file5Data && file5Data.name, file6Data && file6Data.name, file7Data && file7Data.name, file8Data && file8Data.name].filter(Boolean);
     document.getElementById('uploadCard').style.display='none';
     document.getElementById('loadedBar').style.display='flex';
     document.getElementById('loadedNames').textContent = 'Loaded ' + fileNames.join(' + ');
@@ -1574,6 +1621,23 @@ function financialYearOf(dateVal){
   const y = d.getFullYear(), m = d.getMonth()+1; // 1-12
   if(m >= 4) return { label: 'FY' + y + '-' + String(y+1).slice(-2), sortKey: y };
   return { label: 'FY' + (y-1) + '-' + String(y).slice(-2), sortKey: y-1 };
+}
+// Display-only date formatter for columns that just need a readable date (not filtered/bucketed the way
+// financialYearOf/monthKeyOf are) — handles the same three possible input shapes (Date / Excel serial
+// number / string) as those two, since sheetToRows()'s raw:true + no cellDates:true means a date cell's
+// JS type varies by which report it came from and even by column within the same report.
+function fmtDateAny(v){
+  if(v === null || v === undefined || v === '') return '—';
+  let d;
+  if(v instanceof Date) d = v;
+  else if(typeof v === 'number' && isFinite(v)) d = excelSerialToDate(v);
+  else if(typeof v === 'string' && v.trim()){
+    const parsed = new Date(v);
+    d = isNaN(parsed.getTime()) ? null : parsed;
+    if(!d) return v; // not a parseable date string — show it as-is rather than hiding it behind '—'
+  } else return '—';
+  if(isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
 }
 function monthKeyOf(dateVal){
   let d;
@@ -2052,6 +2116,61 @@ function parseCancellationReport(wb){
   }
   return records;
 }
+// Supplier Outstanding Report With Ageing — Sheet2 ("...Detailed") is the reliable per-invoice source;
+// Sheet1 is a hierarchical vendor/project summary that double-counts if summed naively, so it's not
+// used here. Sheet2's own trailing "Grand Total :" row (in the Processed Date column position) is the
+// sentinel used to stop before the totals row, verified to match the sheet's own stated Grand Total
+// exactly (outstanding, gross, payable, paid and all five ageing buckets) against a sample export.
+// Unlike the Sales/CRM reports, Purchase records are NOT run through filterFull/filterProjectOnly —
+// vendor project names here don't reliably match the Sales project dropdown, so this tab always shows
+// its own full, unfiltered data rather than silently dropping rows that don't match a Sales project.
+function parsePurchaseOutstanding(wb){
+  const sheetName = wb.SheetNames.find(n => n.toLowerCase() === 'sheet2') || wb.SheetNames[1] || wb.SheetNames[0];
+  const rows = sheetToRows(wb.Sheets[sheetName]);
+  let headerIdx = rows.findIndex(r => normalizeHeader(r[0]) === 'Company' && normalizeHeader(r[1]) === 'Vendor');
+  if(headerIdx < 0) headerIdx = rows.findIndex(r => normalizeHeader(r[1]) === 'Vendor');
+  if(headerIdx < 0) headerIdx = 4;
+  const headerRow = rows[headerIdx] || [];
+  const col = {};
+  headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
+  const companyIdx = col['Company'] !== undefined ? col['Company'] : 0;
+  const vendorIdx = col['Vendor'] !== undefined ? col['Vendor'] : 1;
+  const msmeIdx = col['MSME No'] !== undefined ? col['MSME No'] : 2;
+  const poIdx = col['WorkOrder/PO Display No'] !== undefined ? col['WorkOrder/PO Display No'] : 3;
+  const projectIdx = col['Project'] !== undefined ? col['Project'] : 5;
+  const invoiceNoIdx = col['Invoice No'] !== undefined ? col['Invoice No'] : 6;
+  const invoiceDateIdx = col['Invoice Date'] !== undefined ? col['Invoice Date'] : 7;
+  const processedDateIdx = col['Processed Date'] !== undefined ? col['Processed Date'] : 9;
+  const grossAmtIdx = col['Gross Amt'] !== undefined ? col['Gross Amt'] : 10;
+  const payableAmtIdx = col['Payable Amt'] !== undefined ? col['Payable Amt'] : 12;
+  const paidAmtIdx = col['Paid Amt'] !== undefined ? col['Paid Amt'] : 13;
+  const outstandingAmtIdx = col['Outstanding Amt'] !== undefined ? col['Outstanding Amt'] : 14;
+  const b0_30Idx = col['0-30 Days'] !== undefined ? col['0-30 Days'] : 15;
+  const b31_60Idx = col['31-60'] !== undefined ? col['31-60'] : 16;
+  const b61_90Idx = col['61-90'] !== undefined ? col['61-90'] : 17;
+  const b91_180Idx = col['91-180'] !== undefined ? col['91-180'] : 18;
+  const b180PlusIdx = col['>180'] !== undefined ? col['>180'] : 19;
+  const numOr0 = v => typeof v === 'number' ? v : 0;
+  const records = [];
+  for(let i=headerIdx+1; i<rows.length; i++){
+    const r = rows[i];
+    const vendor = r[vendorIdx];
+    if(vendor === null || vendor === undefined || vendor === '') continue;
+    if((r[processedDateIdx]+'').trim() === 'Grand Total :') continue; // sentinel totals row, not a real invoice
+    const project = (r[projectIdx] || '').toString().trim() || 'Unspecified';
+    const b31_60 = numOr0(r[b31_60Idx]), b61_90 = numOr0(r[b61_90Idx]), b91_180 = numOr0(r[b91_180Idx]), b180plus = numOr0(r[b180PlusIdx]);
+    records.push({
+      company: r[companyIdx] || '', vendor: vendor.toString().trim(), msmeNo: r[msmeIdx] || '',
+      poNo: r[poIdx] || '', project,
+      invoiceNo: r[invoiceNoIdx] || '', invoiceDate: r[invoiceDateIdx] || '', processedDate: r[processedDateIdx] || '',
+      grossAmt: numOr0(r[grossAmtIdx]), payableAmt: numOr0(r[payableAmtIdx]), paidAmt: numOr0(r[paidAmtIdx]),
+      outstandingAmt: numOr0(r[outstandingAmtIdx]),
+      b0_30: numOr0(r[b0_30Idx]), b31_60, b61_90, b91_180, b180plus,
+      overdueAmt: b31_60 + b61_90 + b91_180 + b180plus, // everything outside the 0-30 day bucket
+    });
+  }
+  return records;
+}
 function buildMasterTable(discount, stock, value){
   const allProjects = new Set([...Object.keys(stock), ...Object.keys(value), ...Object.keys(discount)]);
   const master = [];
@@ -2489,6 +2608,7 @@ function renderAll(){
   renderBookingPage();
   renderLocationWiseTable();
   renderPropertyWiseTable();
+  renderPurchasePage();
 }
 function grandTotals(){
   return masterData.reduce((acc,m)=>{
@@ -3188,6 +3308,131 @@ function renderCollectionPage(){
     totalsLabel:'units'
   });
 }
+/* ============ PURCHASE PAGE (Supplier Outstanding Report With Ageing) ============ */
+// Deliberately not run through filterFull/filterProjectOnly — see the note above parsePurchaseOutstanding().
+function renderPurchasePage(){
+  const records = RAW.purchaseOutstandingRecords;
+  const kpiEl = document.getElementById('kpiGridPurchase');
+  if(!records.length){
+    if(kpiEl) kpiEl.innerHTML = '';
+    destroyChart('purchaseAgeing'); destroyChart('purchaseTopVendors'); destroyChart('purchaseTopProjects');
+    return;
+  }
+  const vendorOutstandingTotal = records.reduce((a,r)=>a+r.outstandingAmt,0);
+  const overdueRecords = records.filter(r => r.overdueAmt > 0);
+  const overdueTotal = records.reduce((a,r)=>a+r.overdueAmt,0);
+  const vendorCount = new Set(records.map(r=>r.vendor)).size;
+  kpiDrillData.purchaseVendorOutstanding = records;
+  kpiDrillData.purchaseOverdueOutstanding = overdueRecords;
+  if(kpiEl){
+    kpiEl.innerHTML = [
+      {lbl:'Vendor Outstanding', key:'purchaseVendorOutstanding', val: fmtINRCr(vendorOutstandingTotal), sub: `${fmtNum(records.length)} invoices &middot; ${fmtNum(vendorCount)} vendors`},
+      {lbl:'Overdue Outstanding', key:'purchaseOverdueOutstanding', val: fmtINRCr(overdueTotal), sub: `${fmtNum(overdueRecords.length)} invoices past 30 days`},
+    ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+  }
+  const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
+  const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
+  const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
+  const brick = getComputedStyle(document.documentElement).getPropertyValue('--brick').trim();
+  // 1. Outstanding by ageing bucket (donut)
+  const buckets = [
+    {label:'0-30 Days', value: records.reduce((a,r)=>a+r.b0_30,0), color: teal},
+    {label:'31-60 Days', value: records.reduce((a,r)=>a+r.b31_60,0), color: gold},
+    {label:'61-90 Days', value: records.reduce((a,r)=>a+r.b61_90,0), color: '#E8A33D'},
+    {label:'91-180 Days', value: records.reduce((a,r)=>a+r.b91_180,0), color: brick},
+    {label:'>180 Days', value: records.reduce((a,r)=>a+r.b180plus,0), color: '#8B2E2E'},
+  ];
+  destroyChart('purchaseAgeing');
+  if(buckets.every(b=>b.value===0)){
+    chartEmptyMessage('chartPurchaseAgeing', 'No outstanding balance to age.');
+  } else {
+  chartClearEmptyMessage('chartPurchaseAgeing');
+  charts.purchaseAgeing = new Chart(document.getElementById('chartPurchaseAgeing'), {
+    type:'doughnut',
+    data:{ labels: buckets.map(b=>b.label), datasets:[{ data: buckets.map(b=>b.value/1e7), backgroundColor: buckets.map(b=>b.color), borderWidth:2, borderColor:'#fff' }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}},
+        tooltip:{callbacks:{label: ctx=> ctx.label+': ₹'+ctx.raw.toFixed(2)+' Cr'}},
+        datalabels:{ color:'#fff', font:{weight:'700',size:11}, formatter:(v)=> v>0.005 ? '₹'+v.toFixed(1)+'Cr' : '' }
+      }
+    },
+    plugins:[ChartDataLabels]
+  });
+  }
+  // 2. Top vendors by outstanding (top 15)
+  const vendorMap = {};
+  records.forEach(r=>{ vendorMap[r.vendor] = (vendorMap[r.vendor]||0) + r.outstandingAmt; });
+  const byVendor = Object.entries(vendorMap).map(([vendor,total])=>({vendor,total})).filter(v=>v.total>0).sort((a,b)=>b.total-a.total).slice(0,15);
+  destroyChart('purchaseTopVendors');
+  if(byVendor.length === 0){
+    chartEmptyMessage('chartPurchaseTopVendors', 'No vendor outstanding to show.');
+  } else {
+  chartClearEmptyMessage('chartPurchaseTopVendors');
+  charts.purchaseTopVendors = new Chart(document.getElementById('chartPurchaseTopVendors'), {
+    type:'bar',
+    data:{ labels: byVendor.map(v=>v.vendor), datasets:[{ label:'Outstanding', data: byVendor.map(v=>v.total/1e7), backgroundColor: brick }] },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      scales:{ x:{ title:{display:true,text:'₹ Crore outstanding'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
+      plugins:{
+        legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
+        datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:11}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
+      }
+    },
+    plugins:[ChartDataLabels]
+  });
+  }
+  // 3. Top projects by vendor outstanding (top 15)
+  const projectMap = {};
+  records.forEach(r=>{ projectMap[r.project] = (projectMap[r.project]||0) + r.outstandingAmt; });
+  const byProject = Object.entries(projectMap).map(([project,total])=>({project,total})).filter(p=>p.total>0).sort((a,b)=>b.total-a.total).slice(0,15);
+  destroyChart('purchaseTopProjects');
+  if(byProject.length === 0){
+    chartEmptyMessage('chartPurchaseTopProjects', 'No project-wise outstanding to show.');
+  } else {
+  chartClearEmptyMessage('chartPurchaseTopProjects');
+  charts.purchaseTopProjects = new Chart(document.getElementById('chartPurchaseTopProjects'), {
+    type:'bar',
+    data:{ labels: byProject.map(p=>p.project), datasets:[{ label:'Outstanding', data: byProject.map(p=>p.total/1e7), backgroundColor: navy }] },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      scales:{ x:{ title:{display:true,text:'₹ Crore outstanding'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
+      plugins:{
+        legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
+        datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:11}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
+      }
+    },
+    plugins:[ChartDataLabels]
+  });
+  }
+  // 4. Invoice-wise detail table
+  renderGenericTable({
+    theadId:'purchaseTheadRow', tbodyId:'purchaseTbody', tfootId:'purchaseTfootRow', searchId:'purchaseSearchBox',
+    searchFields:['vendor','project','invoiceNo','poNo'],
+    sortStateKey:'purchase',
+    columns:[
+      {key:'vendor', label:'Vendor', align:'left'},
+      {key:'project', label:'Project', align:'left', noSum:true},
+      {key:'poNo', label:'PO No', align:'left', noSum:true},
+      {key:'invoiceNo', label:'Invoice No', align:'left', noSum:true},
+      {key:'invoiceDate', label:'Invoice Date', align:'left', noSum:true, fmt:fmtDateAny},
+      {key:'grossAmt', label:'Gross Amt', fmt:fmtINRCr},
+      {key:'payableAmt', label:'Payable Amt', fmt:fmtINRCr},
+      {key:'paidAmt', label:'Paid Amt', fmt:fmtINRCr},
+      {key:'outstandingAmt', label:'Outstanding', fmt:fmtINRCr},
+      {key:'b0_30', label:'0-30', fmt:fmtINRCr},
+      {key:'b31_60', label:'31-60', fmt:fmtINRCr},
+      {key:'b61_90', label:'61-90', fmt:fmtINRCr},
+      {key:'b91_180', label:'91-180', fmt:fmtINRCr},
+      {key:'b180plus', label:'>180', fmt:fmtINRCr},
+    ],
+    rowsSource: records,
+    defaultSort:{key:'outstandingAmt', dir:-1},
+    totalsLabel:'invoices'
+  });
+}
 /* ============ BOOKINGS PAGE ============ */
 function renderBookingPage(){
   if(!RAW.bookingRecords.length){
@@ -3638,6 +3883,16 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(crmExport), 'CRM Project Summary');
   }
+  // 10. Purchase — Supplier Outstanding (Invoice-wise, with ageing buckets)
+  if(RAW.purchaseOutstandingRecords.length){
+    const purchaseExport = RAW.purchaseOutstandingRecords.map(r=>({
+      'Vendor': r.vendor, 'Company': r.company, 'MSME No': r.msmeNo, 'Project': r.project, 'PO No': r.poNo,
+      'Invoice No': r.invoiceNo, 'Invoice Date': r.invoiceDate, 'Processed Date': r.processedDate,
+      'Gross Amt (₹)': r.grossAmt, 'Payable Amt (₹)': r.payableAmt, 'Paid Amt (₹)': r.paidAmt, 'Outstanding Amt (₹)': r.outstandingAmt,
+      '0-30 Days (₹)': r.b0_30, '31-60 Days (₹)': r.b31_60, '61-90 Days (₹)': r.b61_90, '91-180 Days (₹)': r.b91_180, '>180 Days (₹)': r.b180plus,
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(purchaseExport), 'Purchase Outstanding');
+  }
   XLSX.writeFile(wb, 'MP_Developers_All_Data_' + new Date().toISOString().slice(0,10) + '.xlsx');
 });
 /* ============ KPI TILE DRILL-DOWN (click a tile on "All Key Metrics" -> records + Download Excel) ============ */
@@ -3733,6 +3988,17 @@ const KPI_DRILL_COLUMNS = {
     {key:'unsold', label:'Unsold', fmt:fmtNum},
     {key:'total', label:'Total', fmt:fmtNum},
   ],
+  purchaseOutstanding: [
+    {key:'vendor', label:'Vendor', align:'left'},
+    {key:'project', label:'Project', align:'left'},
+    {key:'poNo', label:'PO No', align:'left'},
+    {key:'invoiceNo', label:'Invoice No', align:'left'},
+    {key:'invoiceDate', label:'Invoice Date', align:'left', fmt:fmtDateAny},
+    {key:'grossAmt', label:'Gross Amt', fmt:fmtINRCr},
+    {key:'payableAmt', label:'Payable Amt', fmt:fmtINRCr},
+    {key:'paidAmt', label:'Paid Amt', fmt:fmtINRCr},
+    {key:'outstandingAmt', label:'Outstanding', fmt:fmtINRCr},
+  ],
 };
 function getKpiDrillConfig(key){
   switch(key){
@@ -3751,6 +4017,8 @@ function getKpiDrillConfig(key){
     case 'outstandingEstimate': return { columns: KPI_DRILL_COLUMNS.outstandingEstimate, rows: kpiDrillData.outstandingEstimate || [] };
     case 'inAbeyance': return { columns: KPI_DRILL_COLUMNS.outstanding, rows: kpiDrillData.inAbeyance || [] };
     case 'unitTypeWise': return { columns: KPI_DRILL_COLUMNS.unitTypeWise, rows: unitTypeWiseData };
+    case 'purchaseVendorOutstanding': return { columns: KPI_DRILL_COLUMNS.purchaseOutstanding, rows: kpiDrillData.purchaseVendorOutstanding || [] };
+    case 'purchaseOverdueOutstanding': return { columns: KPI_DRILL_COLUMNS.purchaseOutstanding, rows: kpiDrillData.purchaseOverdueOutstanding || [] };
     default: return null;
   }
 }
