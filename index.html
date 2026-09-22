@@ -1096,9 +1096,16 @@ async function tryLoadPublishedData(){
     if(!metaDoc.exists) return false;
     const meta = metaDoc.data();
     // chunkCounts (added alongside the byte-safe splitting in publishDashboardData) tells us how
-    // many chunk_<key>_<n> documents to read for each key. Its absence means this was published
-    // before that change existed — fall back to the single chunk_<key> document those old
-    // publishes used, so nothing breaks for data published before this fix went out.
+    // many chunk_<key>_<n> documents to read for each key. Its absence means either this was
+    // published before that change existed — fall back to the single chunk_<key> document those
+    // old publishes used — or, just as commonly, that this RAW_KEYS entry didn't exist yet when
+    // the currently-published snapshot was written (e.g. a new report type, such as Purchase,
+    // added to the code after the last real publish). Either way we still try the legacy doc
+    // name; if that doesn't exist either, the key is simply absent from this particular publish
+    // and defaults to empty below (see the `optional` handling) — a key that a past publish never
+    // knew about must never take down every other already-published report by failing the whole
+    // load. (This is exactly what caused "nothing published yet" to show up in place of a real,
+    // already-published dashboard right after the Purchase report shipped.)
     const chunkCounts = meta.chunkCounts || {};
     const reads = [];
     RAW_KEYS.forEach(k=>{
@@ -1106,20 +1113,25 @@ async function tryLoadPublishedData(){
       if(count){
         for(let idx=0; idx<count; idx++) reads.push({ key:k, idx, ref: DASH_COL.doc(`chunk_${k}_${idx}`) });
       } else {
-        reads.push({ key:k, idx:0, ref: DASH_COL.doc('chunk_'+k) }); // legacy pre-sharding format
+        reads.push({ key:k, idx:0, ref: DASH_COL.doc('chunk_'+k), optional:true }); // legacy pre-sharding format, or a key absent from this publish
       }
     });
     const snaps = await Promise.all(reads.map(r => r.ref.get()));
     const partsByKey = {};
     for(let i=0;i<reads.length;i++){
-      const { key, idx } = reads[i];
-      if(!snaps[i].exists){ console.error('Missing data chunk:', key, idx); return false; }
+      const { key, idx, optional } = reads[i];
+      if(!snaps[i].exists){
+        if(optional) continue; // absent from this publish — key defaults to empty below
+        console.error('Missing data chunk:', key, idx);
+        return false;
+      }
       if(!partsByKey[key]) partsByKey[key] = [];
       partsByKey[key][idx] = snaps[i].data().data;
     }
     const newRAW = {};
     for(const k of RAW_KEYS){
-      newRAW[k] = JSON.parse((partsByKey[k] || []).join(''));
+      const parts = partsByKey[k];
+      newRAW[k] = parts ? JSON.parse(parts.join('')) : (k === 'stockDict' ? {} : []);
     }
     RAW = newRAW;
     updateSectionVisibility();
