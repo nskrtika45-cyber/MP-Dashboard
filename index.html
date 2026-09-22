@@ -1029,22 +1029,56 @@ function splitForFirestore(str, maxBytes){
   }
   return parts;
 }
+// Firestore rejects a whole batch commit once its total serialized request size crosses
+// roughly 10MiB — a separate, higher-level ceiling than the ~1MiB-per-document limit
+// FIRESTORE_CHUNK_MAX_BYTES guards against. This happened for real the first time the Purchase
+// report (tens of thousands of rows) was included: every individual chunk document stayed safely
+// under FIRESTORE_CHUNK_MAX_BYTES, but all of them committed together in one atomic batch added up
+// to more than Firestore's per-request ceiling, and the whole publish failed with "Request payload
+// size exceeds the limit". groupIntoBatches() keeps each commit's total size under a safe margin.
+const FIRESTORE_BATCH_MAX_BYTES = 8000000; // comfortable margin under the ~10,485,760 byte ceiling
+function groupIntoBatches(writes, maxBytes){
+  const groups = [];
+  let current = [];
+  let currentBytes = 0;
+  writes.forEach(w=>{
+    const bytes = utf8ByteLength(w.data) + 200; // +200 for per-write/document overhead
+    if(current.length && currentBytes + bytes > maxBytes){
+      groups.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(w);
+    currentBytes += bytes;
+  });
+  if(current.length) groups.push(current);
+  return groups;
+}
 async function publishDashboardData(fileNames){
   const statusEl = document.getElementById('publishStatus');
   try{
     const generatedAt = new Date().toISOString();
     const sourceFiles = fileNames.filter(Boolean);
-    const batch = db.batch();
     const chunkCounts = {};
+    const writes = [];
     RAW_KEYS.forEach(k=>{
       const parts = splitForFirestore(JSON.stringify(RAW[k]), FIRESTORE_CHUNK_MAX_BYTES);
       chunkCounts[k] = parts.length;
       parts.forEach((part, idx)=>{
-        batch.set(DASH_COL.doc(`chunk_${k}_${idx}`), { data: part });
+        writes.push({ id: `chunk_${k}_${idx}`, data: part });
       });
     });
-    batch.set(DASH_COL.doc('meta'), { generatedAt, sourceFiles, chunkCounts });
-    await batch.commit();
+    // Chunk documents commit first, split across as many batches as it takes to stay under
+    // Firestore's per-request size ceiling; `meta` — the one document tryLoadPublishedData()
+    // checks first — is written only after every chunk batch has succeeded, so a viewer can
+    // never see `meta` pointing at a publish that's only partially written. If any chunk batch
+    // fails, `meta` keeps pointing at the previous, fully-written publish instead.
+    for(const group of groupIntoBatches(writes, FIRESTORE_BATCH_MAX_BYTES)){
+      const batch = db.batch();
+      group.forEach(w => batch.set(DASH_COL.doc(w.id), { data: w.data }));
+      await batch.commit();
+    }
+    await DASH_COL.doc('meta').set({ generatedAt, sourceFiles, chunkCounts });
     lastPublished = { at: generatedAt, files: sourceFiles };
     updateLastUpdatedBadge();
     if(statusEl){
