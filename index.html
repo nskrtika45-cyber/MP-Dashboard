@@ -1388,6 +1388,7 @@ let collectionData = [];
 let collectionFYData = [];
 let outstandingData = [];
 let genuineCancelledUnits = 0, genuineCancelledValue = 0, genuineCancelledArea = 0;
+let hasTotalFlatCost = false, totalFlatCostSum = 0, totalFlatCostUnits = 0;
 let agreementSignedCount = 0, agreementSignedValue = 0, agreementRegisteredCount = 0, agreementRegisteredValue = 0;
 let agreementYetToSignCount = 0, agreementYetToSignValue = 0, agreementYetToRegisterCount = 0, agreementYetToRegisterValue = 0;
 let soldValueMode = 'net'; // 'net' = current sold value as-is; 'gross' = net + genuine cancellations added back
@@ -1545,6 +1546,12 @@ function parseCustomerDetails(wb){
   const areaIdx = col['Saleable Area'] !== undefined ? col['Saleable Area'] : 3;
   const beforeIdx = col['Base Rate (Before Discount)'] !== undefined ? col['Base Rate (Before Discount)'] : 7;
   const afterIdx = col['Base Rate (After Discount)'] !== undefined ? col['Base Rate (After Discount)'] : 8;
+  // TOTAL FLAT COST — a newer, optional column (added to the ERP export after the rest of this report
+  // was already wired up) giving the unit's all-in cost, inclusive of Govt charges/registration, as a
+  // single figure per row rather than something this dashboard has to derive from Base Rate x Area.
+  // Undefined on older exports that predate this column — totalFlatCost is left null in that case so
+  // the "Total Booking Value including Govt Charges" tile can tell "not on this report" apart from "zero".
+  const totalFlatCostIdx = col['TOTAL FLAT COST'];
   const bookingDateIdx = col['Booking Date'] !== undefined ? col['Booking Date'] : 9;
   const statusIdx = col['Status'] !== undefined ? col['Status'] : 31;
   const records = [];
@@ -1567,7 +1574,8 @@ function parseCustomerDetails(wb){
     const status = r[statusIdx];
     if(typeof before !== 'number' || typeof after !== 'number') continue;
     const project = resolveProjectForSubProject(currentProject || 'Unknown', currentSubProject);
-    records.push({ project, unitNo, area, before, after, bookingDate, status });
+    const totalFlatCost = (totalFlatCostIdx !== undefined && typeof r[totalFlatCostIdx] === 'number') ? r[totalFlatCostIdx] : null;
+    records.push({ project, unitNo, area, before, after, bookingDate, status, totalFlatCost });
   }
   return records;
 }
@@ -2362,6 +2370,16 @@ function applyFiltersAndRender(){
   const customerFiltered = filterFull(RAW.customerRecords, 'bookingDate');
   const { discount } = aggregateDiscount(customerFiltered);
   cancelDiscountFYData = aggregateDiscount(filterProjectOnly(RAW.customerRecords)).cancelFYData; // trend — Project only
+  // Total Booking Value including Govt Charges — sum of the Customer Detail Report's own "TOTAL FLAT
+  // COST" column (all-in cost per unit, inclusive of Govt charges/registration) across the units
+  // matching the current Project + FY + Month filter, same basis (booking date) as Sales Value above.
+  // Only rows where that column actually parsed to a number count — older exports uploaded before
+  // this column existed, or any row ERP left it blank, are excluded rather than treated as zero.
+  const totalFlatCostRows = customerFiltered.filter(r => r.totalFlatCost !== null);
+  hasTotalFlatCost = RAW.customerRecords.some(r => r.totalFlatCost !== null);
+  totalFlatCostSum = totalFlatCostRows.reduce((a,r)=>a+r.totalFlatCost, 0);
+  totalFlatCostUnits = totalFlatCostRows.length;
+  kpiDrillData.totalFlatCost = totalFlatCostRows;
   masterData = buildMasterTable(discount, stock, value);
   // ---- Agreement Register — fully filterable, no separate trend chart to protect ----
   agreementData = filterFull(RAW.agreementRecords, 'bookingDate');
@@ -2820,6 +2838,9 @@ function renderSoldPage(){
     {lbl:'Sold Units', key:'sold', val: fmtNum(displayUnits), sub: showGross ? `across ${masterData.filter(m=>m.soldUnits>0).length} projects, incl. cancellations` : `across ${masterData.filter(m=>m.soldUnits>0).length} projects`},
     {lbl:'Sales Value', key:'sold', val: fmtINRCr(displayValue), sub: soldValueSub},
     {lbl:'Sold Area', key:'sold', val: fmtNum(displayArea)+' sq.ft', sub: soldAreaSub},
+    // Only shown once the Customer Detail Report actually has the "TOTAL FLAT COST" column — older
+    // uploads that predate it just don't get this tile, same pattern as In Abeyance/Total Cancellation.
+    ...(hasTotalFlatCost ? [{lbl:'Total Booking Value including Govt Charges', key:'totalFlatCost', val: fmtINRCr(totalFlatCostSum), sub: `${fmtNum(totalFlatCostUnits)} units &middot; Customer Detail Report's Total Flat Cost column, ${periodFilterActive() ? 'selected period' : 'all-time'}`}] : []),
   ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
@@ -3124,23 +3145,22 @@ function renderCollectionPage(){
   // reads as 0 with a prompt to upload it otherwise.
   const netDueAsPerStage = hasOutstandingReport ? outstandingData.reduce((a,r)=>a+(r.netDue||0),0) : 0;
   const debtorAgeingSub = hasOutstandingReport ? 'Demands raised till date' : 'Upload Debtor Ageing Report (Summary)';
-  // Total Cancellation (Count) / Total Cancellation Value — from the Customer Cancellation Report,
-  // all-time / Project-only (same basis as "In Abeyance" above and the backlog tiles on the Agreement
-  // page), not FY/Month scoped, since this is "how many units have been cancelled overall" rather than
-  // period activity. Counts genuine cancellations only (Customer Requested + Due to Non Payment) — same
-  // definition already used for the Sold Value gross/net toggle — so a ReBooking Cancellation (really a
-  // unit transfer) or an Other (data-entry mistake) row doesn't inflate the figure.
-  const hasCancellationReportAllTime = RAW.cancellationRecords.length > 0;
-  const cancellationRowsAllTime = filterProjectOnly(RAW.cancellationRecords).filter(r=>r.isGenuine);
-  const totalCancellationCount = cancellationRowsAllTime.length;
-  const totalCancellationValue = cancellationRowsAllTime.reduce((a,r)=>a+(r.unitValue||0), 0);
+  // Total Cancellation (Count) / Total Cancellation Value — from the Customer Cancellation Report.
+  // Respects Project + FY + Month, filtered by the cancelled unit's own Booking Date — same basis, and
+  // literally the same underlying filtered set, as genuineCancelledUnits/genuineCancelledValue computed
+  // above (used for the Sold Value gross/net toggle) — reused directly here rather than recomputed, so
+  // the two can never drift apart. Counts genuine cancellations only (Customer Requested + Due to Non
+  // Payment) — a ReBooking Cancellation (really a unit transfer) or an Other (data-entry mistake) row
+  // doesn't inflate the figure.
+  const hasCancellationReport = RAW.cancellationRecords.length > 0;
+  const cancellationPeriodSub = periodActive ? 'in the selected period' : 'all-time';
   // Cached for the KPI drill-down modal. Outstanding Balance shows the same per-unit Debtor Ageing
   // Report rows as Net Due as per Stage when that report is uploaded (both figures are just different
   // sums off the same rows); otherwise it falls back to the project-level Sold-minus-Collected estimate.
   kpiDrillData.collectionTotal = collectionData;
   kpiDrillData.outstandingEstimate = outstandingByProject;
   kpiDrillData.inAbeyance = inAbeyanceRows;
-  kpiDrillData.cancellations = cancellationRowsAllTime;
+  kpiDrillData.cancellations = filterFull(RAW.cancellationRecords.filter(r=>r.isGenuine), 'bookingDate');
   document.getElementById('kpiGridCollection').innerHTML = [
     {lbl:'Total Collected', key:'collectionTotal', val: fmtINRCr(totalCollected), sub: (periodActive ? 'Received in the selected period' : `${fmtNum(unitsRecorded)} units with collection recorded`) + ', including Govt charges and Registrations'},
     {lbl:'Net Due as per Stage', key:'outstanding', val: fmtINRCr(netDueAsPerStage), sub: debtorAgeingSub},
@@ -3149,9 +3169,9 @@ function renderCollectionPage(){
     // Status column, so "In Abeyance" can't be identified from the estimated fallback.
     ...(hasOutstandingReport ? [{lbl:'In Abeyance', key:'inAbeyance', val: fmtNum(inAbeyanceRows.length), sub: `${fmtINRCr(inAbeyanceTotal)} outstanding &middot; cancellation pending, not yet finalized`}] : []),
     // Only shown once the Customer Cancellation Report (file 7) is uploaded.
-    ...(hasCancellationReportAllTime ? [
-      {lbl:'Total Cancellation', key:'cancellations', val: fmtNum(totalCancellationCount), sub: 'Genuine cancellations &middot; Customer Requested + Due to Non Payment, all-time'},
-      {lbl:'Total Cancellation Value', key:'cancellations', val: fmtINRCr(totalCancellationValue), sub: 'Cancelled booking value &middot; same units as Total Cancellation'},
+    ...(hasCancellationReport ? [
+      {lbl:'Total Cancellation', key:'cancellations', val: fmtNum(genuineCancelledUnits), sub: `Genuine cancellations &middot; Customer Requested + Due to Non Payment, ${cancellationPeriodSub}`},
+      {lbl:'Total Cancellation Value', key:'cancellations', val: fmtINRCr(genuineCancelledValue), sub: `Cancelled booking value &middot; same units as Total Cancellation, ${cancellationPeriodSub}`},
     ] : []),
   ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
@@ -3820,6 +3840,15 @@ const KPI_DRILL_COLUMNS = {
     {key:'unsold', label:'Unsold', fmt:fmtNum},
     {key:'total', label:'Total', fmt:fmtNum},
   ],
+  totalFlatCost: [ // Total Booking Value including Govt Charges tile
+    {key:'project', label:'Project', align:'left'},
+    {key:'unitNo', label:'Unit No', align:'left'},
+    {key:'bookingDate', label:'Booking Date', align:'left'},
+    {key:'area', label:'Area (sq.ft)', fmt:fmtNum},
+    {key:'after', label:'Base Rate (After Discount)', fmt:fmtINRCr},
+    {key:'totalFlatCost', label:'Total Flat Cost (Incl. Govt Charges)', fmt:fmtINRCr},
+    {key:'status', label:'Status', align:'left'},
+  ],
   cancellation: [ // Total Cancellation / Total Cancellation Value tiles
     {key:'project', label:'Project', align:'left'},
     {key:'subProject', label:'Sub Project', align:'left'},
@@ -3848,6 +3877,7 @@ function getKpiDrillConfig(key){
     case 'outstandingEstimate': return { columns: KPI_DRILL_COLUMNS.outstandingEstimate, rows: kpiDrillData.outstandingEstimate || [] };
     case 'inAbeyance': return { columns: KPI_DRILL_COLUMNS.outstanding, rows: kpiDrillData.inAbeyance || [] };
     case 'cancellations': return { columns: KPI_DRILL_COLUMNS.cancellation, rows: kpiDrillData.cancellations || [] };
+    case 'totalFlatCost': return { columns: KPI_DRILL_COLUMNS.totalFlatCost, rows: kpiDrillData.totalFlatCost || [] };
     case 'unitTypeWise': return { columns: KPI_DRILL_COLUMNS.unitTypeWise, rows: unitTypeWiseData };
     default: return null;
   }
