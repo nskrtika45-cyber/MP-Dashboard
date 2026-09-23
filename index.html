@@ -1388,7 +1388,13 @@ let collectionData = [];
 let collectionFYData = [];
 let outstandingData = [];
 let genuineCancelledUnits = 0, genuineCancelledValue = 0, genuineCancelledArea = 0;
-let hasTotalFlatCost = false, totalFlatCostSum = 0, totalFlatCostUnits = 0;
+let hasTotalFlatCost = false;
+// "Net" = active bookings only (Status !== 'Cancelled' on the Customer Detail Report's own row, same
+// field aggregateDiscount() already splits active/cancelled on). "Gross" additionally includes the
+// cancelled-status rows — mirrors the existing Sales Value/Sold Units/Sold Area "Booking Value" toggle
+// (Active Bookings Only vs All Bookings Including Cancelled), so this tile moves with that same toggle.
+let totalFlatCostNetSum = 0, totalFlatCostNetUnits = 0;
+let totalFlatCostCancelledSum = 0, totalFlatCostCancelledUnits = 0;
 let agreementSignedCount = 0, agreementSignedValue = 0, agreementRegisteredCount = 0, agreementRegisteredValue = 0;
 let agreementYetToSignCount = 0, agreementYetToSignValue = 0, agreementYetToRegisterCount = 0, agreementYetToRegisterValue = 0;
 let soldValueMode = 'net'; // 'net' = current sold value as-is; 'gross' = net + genuine cancellations added back
@@ -2375,11 +2381,18 @@ function applyFiltersAndRender(){
   // matching the current Project + FY + Month filter, same basis (booking date) as Sales Value above.
   // Only rows where that column actually parsed to a number count — older exports uploaded before
   // this column existed, or any row ERP left it blank, are excluded rather than treated as zero.
+  // Split net (active) vs cancelled-status rows here so renderSoldPage() can add the cancelled portion
+  // back in (or leave it out) depending on the "Booking Value" toggle — see soldValueMode there.
   const totalFlatCostRows = customerFiltered.filter(r => r.totalFlatCost !== null);
   hasTotalFlatCost = RAW.customerRecords.some(r => r.totalFlatCost !== null);
-  totalFlatCostSum = totalFlatCostRows.reduce((a,r)=>a+r.totalFlatCost, 0);
-  totalFlatCostUnits = totalFlatCostRows.length;
-  kpiDrillData.totalFlatCost = totalFlatCostRows;
+  const totalFlatCostNetRows = totalFlatCostRows.filter(r => r.status !== 'Cancelled');
+  const totalFlatCostCancelledRows = totalFlatCostRows.filter(r => r.status === 'Cancelled');
+  totalFlatCostNetSum = totalFlatCostNetRows.reduce((a,r)=>a+r.totalFlatCost, 0);
+  totalFlatCostNetUnits = totalFlatCostNetRows.length;
+  totalFlatCostCancelledSum = totalFlatCostCancelledRows.reduce((a,r)=>a+r.totalFlatCost, 0);
+  totalFlatCostCancelledUnits = totalFlatCostCancelledRows.length;
+  kpiDrillData.totalFlatCostNet = totalFlatCostNetRows;
+  kpiDrillData.totalFlatCostGross = totalFlatCostRows;
   masterData = buildMasterTable(discount, stock, value);
   // ---- Agreement Register — fully filterable, no separate trend chart to protect ----
   agreementData = filterFull(RAW.agreementRecords, 'bookingDate');
@@ -2834,13 +2847,22 @@ function renderSoldPage(){
         area:r.unitArea, amount:r.unitValue, status:'Cancelled (added back)',
       })))
     : soldUnitData;
+  // Total Booking Value including Govt Charges — same "Booking Value" toggle as Sold Units/Sales
+  // Value/Sold Area above: "Active Bookings Only" shows just the net (non-Cancelled-status) rows;
+  // "All Bookings (Including Cancelled)" adds the cancelled-status rows' flat cost back in.
+  const displayTotalFlatCostSum = showGross ? totalFlatCostNetSum + totalFlatCostCancelledSum : totalFlatCostNetSum;
+  const displayTotalFlatCostUnits = showGross ? totalFlatCostNetUnits + totalFlatCostCancelledUnits : totalFlatCostNetUnits;
+  const totalFlatCostSub = showGross
+    ? `${fmtNum(displayTotalFlatCostUnits)} units, incl. ${fmtNum(totalFlatCostCancelledUnits)} cancelled &middot; Total Flat Cost column, ${periodFilterActive() ? 'selected period' : 'all-time'}`
+    : `${fmtNum(displayTotalFlatCostUnits)} units &middot; Total Flat Cost column, ${periodFilterActive() ? 'selected period' : 'all-time'}`;
+  kpiDrillData.totalFlatCost = showGross ? kpiDrillData.totalFlatCostGross : kpiDrillData.totalFlatCostNet;
   document.getElementById('kpiGridSold').innerHTML = [
     {lbl:'Sold Units', key:'sold', val: fmtNum(displayUnits), sub: showGross ? `across ${masterData.filter(m=>m.soldUnits>0).length} projects, incl. cancellations` : `across ${masterData.filter(m=>m.soldUnits>0).length} projects`},
     {lbl:'Sales Value', key:'sold', val: fmtINRCr(displayValue), sub: soldValueSub},
     {lbl:'Sold Area', key:'sold', val: fmtNum(displayArea)+' sq.ft', sub: soldAreaSub},
     // Only shown once the Customer Detail Report actually has the "TOTAL FLAT COST" column — older
     // uploads that predate it just don't get this tile, same pattern as In Abeyance/Total Cancellation.
-    ...(hasTotalFlatCost ? [{lbl:'Total Booking Value including Govt Charges', key:'totalFlatCost', val: fmtINRCr(totalFlatCostSum), sub: `${fmtNum(totalFlatCostUnits)} units &middot; Customer Detail Report's Total Flat Cost column, ${periodFilterActive() ? 'selected period' : 'all-time'}`}] : []),
+    ...(hasTotalFlatCost ? [{lbl:'Total Booking Value including Govt Charges', key:'totalFlatCost', val: fmtINRCr(displayTotalFlatCostSum), sub: totalFlatCostSub}] : []),
   ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
