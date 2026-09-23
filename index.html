@@ -3124,12 +3124,23 @@ function renderCollectionPage(){
   // reads as 0 with a prompt to upload it otherwise.
   const netDueAsPerStage = hasOutstandingReport ? outstandingData.reduce((a,r)=>a+(r.netDue||0),0) : 0;
   const debtorAgeingSub = hasOutstandingReport ? 'Demands raised till date' : 'Upload Debtor Ageing Report (Summary)';
+  // Total Cancellation (Count) / Total Cancellation Value — from the Customer Cancellation Report,
+  // all-time / Project-only (same basis as "In Abeyance" above and the backlog tiles on the Agreement
+  // page), not FY/Month scoped, since this is "how many units have been cancelled overall" rather than
+  // period activity. Counts genuine cancellations only (Customer Requested + Due to Non Payment) — same
+  // definition already used for the Sold Value gross/net toggle — so a ReBooking Cancellation (really a
+  // unit transfer) or an Other (data-entry mistake) row doesn't inflate the figure.
+  const hasCancellationReportAllTime = RAW.cancellationRecords.length > 0;
+  const cancellationRowsAllTime = filterProjectOnly(RAW.cancellationRecords).filter(r=>r.isGenuine);
+  const totalCancellationCount = cancellationRowsAllTime.length;
+  const totalCancellationValue = cancellationRowsAllTime.reduce((a,r)=>a+(r.unitValue||0), 0);
   // Cached for the KPI drill-down modal. Outstanding Balance shows the same per-unit Debtor Ageing
   // Report rows as Net Due as per Stage when that report is uploaded (both figures are just different
   // sums off the same rows); otherwise it falls back to the project-level Sold-minus-Collected estimate.
   kpiDrillData.collectionTotal = collectionData;
   kpiDrillData.outstandingEstimate = outstandingByProject;
   kpiDrillData.inAbeyance = inAbeyanceRows;
+  kpiDrillData.cancellations = cancellationRowsAllTime;
   document.getElementById('kpiGridCollection').innerHTML = [
     {lbl:'Total Collected', key:'collectionTotal', val: fmtINRCr(totalCollected), sub: (periodActive ? 'Received in the selected period' : `${fmtNum(unitsRecorded)} units with collection recorded`) + ', including Govt charges and Registrations'},
     {lbl:'Net Due as per Stage', key:'outstanding', val: fmtINRCr(netDueAsPerStage), sub: debtorAgeingSub},
@@ -3137,6 +3148,11 @@ function renderCollectionPage(){
     // Only shown once the Debtor Ageing Report is uploaded — that's the only source with a per-unit
     // Status column, so "In Abeyance" can't be identified from the estimated fallback.
     ...(hasOutstandingReport ? [{lbl:'In Abeyance', key:'inAbeyance', val: fmtNum(inAbeyanceRows.length), sub: `${fmtINRCr(inAbeyanceTotal)} outstanding &middot; cancellation pending, not yet finalized`}] : []),
+    // Only shown once the Customer Cancellation Report (file 7) is uploaded.
+    ...(hasCancellationReportAllTime ? [
+      {lbl:'Total Cancellation', key:'cancellations', val: fmtNum(totalCancellationCount), sub: 'Genuine cancellations &middot; Customer Requested + Due to Non Payment, all-time'},
+      {lbl:'Total Cancellation Value', key:'cancellations', val: fmtINRCr(totalCancellationValue), sub: 'Cancelled booking value &middot; same units as Total Cancellation'},
+    ] : []),
   ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
@@ -3804,6 +3820,16 @@ const KPI_DRILL_COLUMNS = {
     {key:'unsold', label:'Unsold', fmt:fmtNum},
     {key:'total', label:'Total', fmt:fmtNum},
   ],
+  cancellation: [ // Total Cancellation / Total Cancellation Value tiles
+    {key:'project', label:'Project', align:'left'},
+    {key:'subProject', label:'Sub Project', align:'left'},
+    {key:'unitNo', label:'Unit No', align:'left'},
+    {key:'customer', label:'Customer', align:'left'},
+    {key:'bookingDate', label:'Booking Date', align:'left'},
+    {key:'unitValue', label:'Unit Value', fmt:fmtINRCr},
+    {key:'cancellationDate', label:'Cancellation Date', align:'left'},
+    {key:'reason', label:'Cancellation Reason', align:'left'},
+  ],
 };
 function getKpiDrillConfig(key){
   switch(key){
@@ -3821,6 +3847,7 @@ function getKpiDrillConfig(key){
     case 'outstanding': return { columns: KPI_DRILL_COLUMNS.outstanding, rows: outstandingData };
     case 'outstandingEstimate': return { columns: KPI_DRILL_COLUMNS.outstandingEstimate, rows: kpiDrillData.outstandingEstimate || [] };
     case 'inAbeyance': return { columns: KPI_DRILL_COLUMNS.outstanding, rows: kpiDrillData.inAbeyance || [] };
+    case 'cancellations': return { columns: KPI_DRILL_COLUMNS.cancellation, rows: kpiDrillData.cancellations || [] };
     case 'unitTypeWise': return { columns: KPI_DRILL_COLUMNS.unitTypeWise, rows: unitTypeWiseData };
     default: return null;
   }
