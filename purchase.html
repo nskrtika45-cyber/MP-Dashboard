@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MP Developers | Purchase Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --navy:#262B6E;
+    --navy-light:#363C92;
+    --navy-pale:#EBEDFA;
+    --gold:#EA7726;
+    --gold-light:#F3A468;
+    --teal:#363C92;
+    --brick:#B85A17;
+    --bg:#F4F5F7;
+    --card:#FFFFFF;
+    --ink:#20244D;
+    --muted:#666FA0;
+    --border:#E4E5F0;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',sans-serif;}
+  h1,h2,h3,.display{font-family:'Fraunces',serif;}
+  .num{font-variant-numeric:tabular-nums;}
+  /* ---------- Header ---------- */
+  header.top{
+    background:linear-gradient(155deg,var(--navy) 0%,var(--navy-light) 100%);
+    color:#fff;padding:34px 40px 26px;position:relative;overflow:hidden;
+  }
+  header.top::after{
+    content:"";position:absolute;inset:0;
+    background-image:repeating-linear-gradient(90deg, rgba(201,162,75,0.06) 0 1px, transparent 1px 64px);
+    pointer-events:none;
+  }
+  .eyebrow{color:var(--gold-light);letter-spacing:.14em;text-transform:uppercase;font-size:11px;font-weight:600;margin:0 0 6px;}
+  header.top h1{font-size:30px;font-weight:600;margin:0 0 6px;color:#fff;}
+  header.top p{margin:0;color:#C7CAE8;font-size:13.5px;max-width:640px;}
+  .header-row{display:flex;align-items:center;gap:18px;}
+  .logo-badge{
+    flex-shrink:0;width:60px;height:60px;background:#fff;border-radius:14px;
+    display:flex;align-items:center;justify-content:center;overflow:hidden;
+    box-shadow:0 2px 8px rgba(0,0,0,.18);
+  }
+  .logo-badge img{width:100%;height:100%;object-fit:cover;}
+  .tick-rule{display:flex;align-items:center;gap:3px;margin-top:18px;}
+  .tick-rule i{display:block;width:1px;height:8px;background:var(--gold);opacity:.55;}
+  .tick-rule i:nth-child(4n){height:13px;opacity:.9;}
+  .tick-rule .line{flex:1;height:1px;background:var(--gold);opacity:.55;margin:0 2px;}
+  main{max-width:1800px;margin:0 auto;padding:28px 32px 70px;}
+  /* ---------- Role gate ---------- */
+  .role-gate{
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px;
+    background:linear-gradient(155deg,var(--navy) 0%,var(--navy-light) 100%);
+  }
+  .role-gate-inner{max-width:640px;text-align:center;color:#fff;}
+  .role-gate-logo{width:72px;height:72px;background:#fff;border-radius:16px;margin:0 auto 20px;
+    display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 4px 14px rgba(0,0,0,.22);}
+  .role-gate-logo img{width:100%;height:100%;object-fit:cover;}
+  .role-gate-eyebrow{color:var(--gold-light);letter-spacing:.14em;text-transform:uppercase;font-size:11px;font-weight:600;margin:0 0 8px;}
+  .role-gate-inner h1{font-family:'Fraunces',serif;font-size:32px;font-weight:600;margin:0 0 10px;}
+  .role-gate-sub{color:#C7CAE8;font-size:14px;margin:0 0 30px;}
+  .role-cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;text-align:left;}
+  @media (max-width:560px){.role-cards{grid-template-columns:1fr;}}
+  .role-card{
+    background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);border-radius:12px;
+    padding:22px 20px;cursor:pointer;font-family:'Inter',sans-serif;text-align:left;transition:background .15s,border-color .15s;
+  }
+  .role-card:hover{background:rgba(255,255,255,.12);border-color:var(--gold);}
+  .role-card-title{font-family:'Fraunces',serif;font-size:18px;font-weight:600;color:#fff;margin-bottom:8px;}
+  .role-card-desc{font-size:12.5px;color:#C7CAE8;line-height:1.5;}
+  .role-gate-note{font-size:11.5px;color:#8890BC;margin-top:28px;line-height:1.6;}
+  .role-gate-note code{background:rgba(255,255,255,.1);padding:1px 6px;border-radius:4px;color:#E8D9AE;}
+  .login-form{max-width:340px;margin:0 auto;text-align:left;}
+  .login-field{display:block;margin-bottom:16px;}
+  .login-field span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;font-weight:600;color:#C7CAE8;margin-bottom:6px;}
+  .login-field input{
+    width:100%;padding:11px 13px;border-radius:8px;border:1px solid rgba(255,255,255,.22);
+    background:rgba(255,255,255,.08);color:#fff;font-size:14px;font-family:'Inter',sans-serif;
+  }
+  .login-field input::placeholder{color:#8890BC;}
+  .login-field input:focus{outline:2px solid var(--gold);outline-offset:1px;}
+  .login-submit{width:100%;padding:12px;font-size:14px;margin-top:4px;}
+  .login-error{color:#F3B199;font-size:12.5px;margin-top:14px;text-align:center;}
+  .role-indicator{margin-left:auto;flex-shrink:0;align-self:flex-start;display:flex;align-items:center;gap:10px;}
+  .role-indicator .badge{background:rgba(255,255,255,.12);color:#fff;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:5px 12px;border-radius:20px;}
+  .role-indicator .admin-link{color:var(--gold-light);font-size:12px;font-weight:600;text-decoration:none;border:1px solid rgba(255,255,255,.3);padding:5px 12px;border-radius:20px;}
+  .role-indicator .admin-link:hover{background:rgba(255,255,255,.12);}
+  .role-indicator button{background:transparent;border:1px solid rgba(255,255,255,.3);color:#fff;font-size:11.5px;padding:5px 12px;border-radius:20px;cursor:pointer;font-family:'Inter',sans-serif;}
+  .role-indicator button:hover{background:rgba(255,255,255,.12);}
+  /* ---------- Last updated / empty state / publish status ---------- */
+  .last-updated-badge{
+    display:flex;align-items:center;gap:8px;background:var(--navy-pale);border:1px solid var(--border);
+    border-radius:8px;padding:9px 14px;margin-bottom:18px;font-size:12.5px;color:var(--navy);font-weight:600;
+  }
+  .last-updated-badge .dot{width:7px;height:7px;border-radius:50%;background:var(--teal);flex-shrink:0;}
+  .last-updated-badge .muted-part{color:var(--muted);font-weight:400;}
+  .empty-state{
+    background:var(--card);border:1px solid var(--border);border-radius:10px;padding:60px 30px;
+    text-align:center;color:var(--muted);
+  }
+  .empty-state h2{font-family:'Fraunces',serif;color:var(--navy);font-size:20px;margin:0 0 8px;}
+  .publish-status{margin-top:12px;font-size:12.5px;padding:9px 12px;border-radius:7px;}
+  .publish-status.ok{background:#EAF6F3;color:var(--teal);}
+  .publish-status.err{background:#FBEDE6;color:var(--brick);}
+  /* ---------- Admin: user management panel ---------- */
+  .hidden{display:none !important;}
+  .admin-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin-bottom:20px;}
+  .hint{color:var(--muted);font-size:12px;margin:0 0 14px;line-height:1.5;}
+  #adminUsersPanel table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  #adminUsersPanel th{text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:8px 10px;border-bottom:1px solid var(--border);}
+  #adminUsersPanel td{padding:10px;border-bottom:1px solid var(--border);vertical-align:middle;}
+  #adminUsersPanel td.email{font-weight:600;color:var(--ink);}
+  #adminUsersPanel select{padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Inter',sans-serif;font-size:13px;background:#fff;}
+  .save-btn{background:var(--navy);color:#fff;font-size:12px;font-weight:600;padding:7px 14px;border-radius:6px;border:none;cursor:pointer;}
+  .save-btn:disabled{opacity:.5;cursor:not-allowed;}
+  .save-btn.saved{background:var(--teal);}
+  .pending-badge{background:#FDEEE1;color:var(--brick);font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;text-transform:uppercase;}
+  .empty-row{color:var(--muted);text-align:center;padding:24px;font-size:13px;}
+  .add-row{display:flex;gap:10px;margin-top:6px;flex-wrap:wrap;}
+  .add-row input{flex:1;min-width:220px;padding:9px 12px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:'Inter',sans-serif;}
+  .add-row select{flex-shrink:0;padding:9px 10px;border:1px solid var(--border);border-radius:7px;}
+  .add-row .btn{flex-shrink:0;width:auto;}
+  /* ---------- Pending / waiting-for-approval screen ---------- */
+  .pending-screen{
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px;
+    background:linear-gradient(155deg,var(--navy) 0%,var(--navy-light) 100%);color:#fff;
+  }
+  .pending-inner{max-width:440px;text-align:center;}
+  .pending-inner .status-banner{
+    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:10px;
+    padding:20px;margin-top:20px;font-size:13.5px;line-height:1.6;text-align:left;
+  }
+  .pending-inner .status-banner b{color:var(--gold-light);}
+  .pending-inner .uid-box{
+    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:8px;
+    padding:10px 13px;font-family:monospace;font-size:12px;word-break:break-all;color:#E8D9AE;margin:16px 0 0;
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+  }
+  .pending-inner .uid-box button{flex-shrink:0;background:rgba(255,255,255,.15);border:none;color:#fff;font-size:11px;font-weight:600;
+    padding:6px 10px;border-radius:6px;cursor:pointer;font-family:'Inter',sans-serif;}
+  .pending-inner .btn-row-pending{display:flex;gap:10px;justify-content:center;margin-top:18px;}
+  .pending-inner .btn-row-pending button{
+    background:transparent;border:1px solid rgba(255,255,255,.3);color:#fff;font-size:12.5px;font-weight:600;
+    padding:9px 16px;border-radius:20px;cursor:pointer;font-family:'Inter',sans-serif;
+  }
+  .pending-inner .btn-row-pending button.primary{background:var(--gold);border-color:var(--gold);}
+  /* ---------- Upload panel ---------- */
+  .upload-card{
+    background:var(--card);border:1px solid var(--border);border-radius:10px;
+    padding:26px 28px;margin-bottom:26px;box-shadow:0 1px 2px rgba(20,30,50,.04);
+  }
+  .upload-card h2{font-size:17px;margin:0 0 4px;color:var(--navy);}
+  .upload-card .sub{color:var(--muted);font-size:13px;margin:0 0 20px;}
+  .upload-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;}
+  .drop{
+    border:1.5px dashed #C7CEDA;border-radius:8px;padding:18px;text-align:center;
+    background:#FBFCFD;cursor:pointer;transition:border-color .15s, background .15s;
+  }
+  .drop:hover{border-color:var(--gold);background:#FEFCF6;}
+  .drop.filled{border-color:var(--teal);background:#F2F9F8;border-style:solid;}
+  .drop .label{font-size:12.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:6px;}
+  .drop .fname{font-size:13.5px;color:var(--ink);font-weight:600;word-break:break-all;}
+  .drop .hint{font-size:12px;color:#98A2B3;margin-top:4px;}
+  .drop input{display:none;}
+  .btn{
+    appearance:none;border:none;border-radius:7px;padding:11px 22px;font-family:'Inter',sans-serif;
+    font-weight:600;font-size:13.5px;cursor:pointer;transition:transform .1s, opacity .15s;
+  }
+  .btn:active{transform:translateY(1px);}
+  .btn-primary{background:var(--navy);color:#fff;}
+  .btn-primary:disabled{opacity:.4;cursor:not-allowed;}
+  .btn-primary:not(:disabled):hover{background:var(--navy-light);}
+  .btn-ghost{background:transparent;color:var(--navy);border:1px solid var(--border);}
+  .btn-ghost:hover{border-color:var(--navy);}
+  .btn-row{display:flex;gap:12px;align-items:center;margin-top:20px;}
+  .err{color:var(--brick);font-size:12.5px;margin-top:10px;display:none;}
+  /* Collapsed loaded bar */
+  .loaded-bar{
+    display:none;align-items:center;justify-content:space-between;background:var(--card);
+    border:1px solid var(--border);border-radius:10px;padding:14px 20px;margin-bottom:26px;font-size:13px;
+  }
+  .loaded-bar .files{color:var(--muted);}
+  .loaded-bar .files b{color:var(--ink);}
+  .loaded-bar .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--teal);margin-right:8px;}
+  /* ---------- Dashboard ---------- */
+  #dashboard{display:none;}
+  /* Hero Sold/Available banner */
+  .hero-split{
+    display:grid;grid-template-columns:1fr 1fr;gap:0;background:var(--card);border:1px solid var(--border);
+    border-radius:10px;overflow:hidden;margin-bottom:26px;box-shadow:0 1px 2px rgba(20,30,50,.04);
+  }
+  /* Three-way split once a report with the MSP column has been uploaded — Unsold (Listed) / Unsold (MSP) / Sales Value */
+  .hero-split.has-msp{grid-template-columns:1fr 1fr 1fr;}
+  @media (max-width:700px){.hero-split{grid-template-columns:1fr;}}
+  .hero-half{padding:24px 26px;position:relative;}
+  .hero-half.sold{background:linear-gradient(135deg,var(--navy-light) 0%,var(--navy) 100%);color:#fff;}
+  .hero-half.avail{background:linear-gradient(135deg,var(--gold) 0%,var(--brick) 100%);color:#fff;}
+  .hero-half.msp{background:linear-gradient(135deg,var(--teal) 0%,var(--navy) 100%);color:#fff;}
+  .hero-half .lbl{font-size:12px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;opacity:.85;margin-bottom:8px;}
+  .hero-half .big{font-family:'Fraunces',serif;font-size:36px;font-weight:700;line-height:1;margin-bottom:6px;}
+  .hero-half .sub2{font-size:12.5px;opacity:.9;}
+  .hero-bar{height:6px;background:rgba(255,255,255,.35);position:relative;margin-top:8px;}
+  .hero-bar .fill{position:absolute;left:0;top:0;bottom:0;background:#fff;}
+  /* Filter bar */
+  .filter-bar{
+    display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;background:var(--card);
+    border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:10px;
+  }
+  .filter-field{display:flex;flex-direction:column;gap:5px;min-width:180px;flex:1;}
+  .filter-field label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;color:var(--muted);}
+  .filter-field select{
+    padding:9px 11px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:'Inter',sans-serif;
+    color:var(--ink);background:#fff;
+  }
+  .filter-bar .btn{flex-shrink:0;}
+  /* Multi-select checkbox dropdown (Financial Year / Month) — a button + floating checkbox panel,
+     styled to match the plain <select> fields it sits next to. */
+  .multiselect{position:relative;}
+  .multiselect-btn{
+    width:100%;text-align:left;padding:9px 11px;border:1px solid var(--border);border-radius:7px;font-size:13px;
+    font-family:'Inter',sans-serif;color:var(--ink);background:#fff;cursor:pointer;
+  }
+  .multiselect-btn::after{content:'▾';float:right;color:var(--muted);margin-left:8px;}
+  .multiselect-panel{
+    display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:100%;max-height:260px;overflow-y:auto;
+    background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);
+    padding:6px;z-index:20;
+  }
+  .multiselect.open .multiselect-panel{display:block;}
+  .ms-option{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:5px;font-size:13px;cursor:pointer;white-space:nowrap;color:var(--ink);}
+  .ms-option:hover{background:var(--navy-pale);}
+  .ms-option input{margin:0;flex-shrink:0;}
+  .ms-empty{padding:6px 8px;font-size:12.5px;color:var(--muted);}
+  .filter-busy{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:600;}
+  .filter-busy .spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--navy);animation:filterspin .6s linear infinite;}
+  @keyframes filterspin{to{transform:rotate(360deg);}}
+  .filter-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 2px 22px;font-size:12px;}
+  .filter-chip{background:var(--navy-pale);color:var(--navy);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-weight:600;}
+  .filter-note{color:var(--muted);}
+  /* Section nav — was a tab switcher, now a sticky jump-to-section bar since every section renders
+     on one continuous page */
+  .tabs{display:flex;gap:4px;margin-bottom:22px;border-bottom:1px solid var(--border);
+    position:sticky;top:0;background:var(--bg);z-index:20;padding-top:4px;}
+  .tab-btn{
+    appearance:none;border:none;background:transparent;padding:11px 20px;font-family:'Inter',sans-serif;
+    font-weight:600;font-size:13.5px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;
+    margin-bottom:-1px;transition:color .15s, border-color .15s;
+  }
+  .tab-btn:hover{color:var(--navy);}
+  .tab-btn.active{color:var(--navy);border-bottom-color:var(--gold);}
+  .page{display:block;scroll-margin-top:56px;}
+  .section-title{display:flex;align-items:baseline;gap:10px;margin:34px 0 14px;}
+  .section-title h2{font-size:16px;margin:0;color:var(--navy);text-transform:uppercase;letter-spacing:.06em;}
+  .section-title .line{flex:1;height:1px;background:var(--border);}
+  .section-title:first-child{margin-top:0;}
+  .section-title.group{margin-top:48px;}
+  .section-title.group h2{font-size:21px;color:var(--gold);text-transform:none;letter-spacing:0;font-family:'Fraunces',serif;font-weight:600;}
+  .section-title.group .line{background:var(--gold);opacity:.35;}
+  .section-title.group:first-child{margin-top:0;}
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:14px;}
+  @media (max-width:620px){.kpi-grid{grid-template-columns:repeat(2,1fr);}}
+  /* Spans the full grid row to sub-divide a kpi-grid into labelled groups (e.g. "current backlog"
+     vs "activity in the selected period") without needing a separate grid/section per group. */
+  .kpi-group-label{grid-column:1/-1;font-size:11px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;color:var(--muted);margin:2px 2px -4px;}
+  .sold-toggle{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px;padding:8px 10px;background:var(--navy-pale);border:1px solid var(--border);border-radius:8px;font-size:13px;}
+  .sold-toggle-label{font-weight:600;color:var(--navy);}
+  .toggle-tabs{display:flex;gap:4px;background:#fff;border:1px solid var(--border);border-radius:7px;padding:3px;}
+  .toggle-tab{appearance:none;border:none;background:transparent;color:var(--muted);font-family:'Inter',sans-serif;
+    font-size:12.5px;font-weight:600;padding:7px 14px;border-radius:5px;cursor:pointer;transition:background .15s,color .15s;}
+  .toggle-tab:hover{color:var(--navy);}
+  .toggle-tab.active{background:var(--gold);color:#fff;}
+  .kpi{
+    background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 16px 14px;
+    position:relative;overflow:hidden;
+  }
+  .kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gold);}
+  .kpi .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:8px;}
+  .kpi .val{font-family:'Fraunces',serif;font-size:23px;font-weight:600;color:var(--navy);line-height:1.1;}
+  .kpi .sub{font-size:11.5px;color:var(--muted);margin-top:6px;}
+  .kpi .sub b{color:var(--ink);}
+  /* A tile with data-drill is clickable — it opens the KPI drill-down modal with the records behind
+     its number. Tiles without a mapped drill-down (none currently, but kept defensive) get no attribute
+     and stay non-interactive. */
+  .kpi[data-drill]{cursor:pointer;transition:box-shadow .15s,border-color .15s;}
+  .kpi[data-drill]:hover{box-shadow:0 4px 14px rgba(20,30,60,.10);border-color:var(--gold);}
+  .kpi[data-drill]:hover::after{content:"View records \2192";position:absolute;right:12px;bottom:10px;font-size:10.5px;font-weight:600;color:var(--gold);}
+  /* ---- KPI drill-down modal: click a tile above to see the unit-level records behind its number,
+     with a Download Excel button to export exactly that list. ---- */
+  .modal-overlay{position:fixed;inset:0;background:rgba(15,20,35,.5);z-index:100;display:none;align-items:center;justify-content:center;padding:24px;}
+  .modal-box{background:var(--card);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.25);width:100%;max-width:980px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;}
+  .modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:18px 22px;border-bottom:1px solid var(--border);}
+  .modal-header h3{margin:0 0 4px;font-family:'Fraunces',serif;font-size:19px;color:var(--navy);}
+  .modal-sub{font-size:12.5px;color:var(--muted);}
+  .modal-close{appearance:none;border:none;background:transparent;font-size:22px;line-height:1;color:var(--muted);cursor:pointer;padding:2px 6px;border-radius:6px;flex-shrink:0;}
+  .modal-close:hover{background:var(--navy-pale);color:var(--navy);}
+  .modal-body{overflow:auto;padding:0 22px;flex:1;}
+  .modal-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .modal-table thead th{position:sticky;top:0;background:var(--card);text-align:right;padding:9px 8px;border-bottom:2px solid var(--border);color:var(--navy);font-weight:700;white-space:nowrap;}
+  .modal-table thead th:first-child{text-align:left;}
+  .modal-table tbody td{padding:7px 8px;border-bottom:1px solid var(--border);white-space:nowrap;}
+  .modal-table tbody tr:hover{background:var(--navy-pale);}
+  .modal-empty{text-align:center !important;color:var(--muted);padding:24px 8px !important;}
+  .modal-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 22px;border-top:1px solid var(--border);}
+  .modal-count{font-size:12px;color:var(--muted);}
+  .chart-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:18px;}
+  .chart-grid.one{grid-template-columns:1fr;}
+  @media (max-width:900px){.chart-grid{grid-template-columns:1fr;}}
+  .chart-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 20px;}
+  .chart-card h3{font-size:13.5px;margin:0 0 14px;color:var(--navy);font-weight:600;font-family:'Inter',sans-serif;}
+  .chart-card .wrap{position:relative;height:300px;}
+  .chart-empty-msg{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:var(--muted);font-size:12.5px;text-align:center;padding:20px;line-height:1.5;
+  }
+  .chart-card .wrap.tall{height:340px;}
+  .chart-card .wrap.xtall{height:560px;}
+  .chart-note{margin:10px 2px 0;font-size:12px;color:var(--muted);line-height:1.5;}
+  /* ---------- Filter / table ---------- */
+  .table-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;}
+  .table-toolbar input[type=text]{
+    flex:1;min-width:200px;padding:9px 12px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:'Inter',sans-serif;
+  }
+  .table-toolbar label{font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:6px;}
+  .table-card{background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+  .table-scroll{overflow-x:auto;}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;white-space:nowrap;}
+  thead th{
+    background:var(--navy-pale);color:var(--navy);text-align:right;padding:9px 11px;font-weight:600;
+    position:sticky;top:0;cursor:pointer;user-select:none;border-bottom:1px solid var(--border);
+  }
+  thead th:first-child,td.proj{text-align:left;position:sticky;left:0;background:inherit;z-index:1;}
+  thead th:first-child{background:var(--navy-pale);z-index:2;}
+  thead th .arrow{opacity:.4;margin-left:3px;font-size:10px;}
+  tbody td{padding:8px 11px;text-align:right;border-bottom:1px solid var(--border);}
+  tbody tr:nth-child(even){background:#FAFBFC;}
+  tbody tr:hover{background:var(--navy-pale);}
+  td.proj{font-weight:600;color:var(--navy);background:#fff;}
+  tbody tr:nth-child(even) td.proj{background:#FAFBFC;}
+  tbody tr:hover td.proj{background:var(--navy-pale);}
+  .muted-cell{color:#B0B8C4;}
+  .pos{color:var(--teal);}
+  .neg{color:var(--brick);}
+  tfoot td{padding:11px 14px;font-weight:700;background:var(--navy-pale);border-top:2px solid var(--navy);color:var(--navy);}
+  .footer-row{display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:10px;}
+  .footer-note{font-size:11.5px;color:var(--muted);}
+  @media print{
+    .upload-card,.loaded-bar,.table-toolbar,.btn-row,header.top .eyebrow,.tabs{display:none !important;}
+    body{background:#fff;}
+    .chart-card,.kpi,.table-card{break-inside:avoid;}
+    .page{display:block !important;margin-bottom:40px;}
+  }
+
+  .back-link{display:inline-flex;align-items:center;gap:6px;color:#fff;opacity:.85;font-size:13px;text-decoration:none;margin-bottom:10px;}
+  .back-link:hover{opacity:1;text-decoration:underline;}
+</style>
+</head>
+<body>
+<div id="roleGate" class="role-gate">
+  <div class="role-gate-inner">
+    <p class="role-gate-eyebrow">Created by MP Developers ERP Team</p>
+    <h1>Purchase Dashboard</h1>
+    <p class="role-gate-sub">Sign in to continue.</p>
+    <form class="login-form" id="loginForm">
+      <label class="login-field">
+        <span>Email</span>
+        <input type="email" id="loginEmail" autocomplete="username" required>
+      </label>
+      <label class="login-field">
+        <span>Password</span>
+        <input type="password" id="loginPassword" autocomplete="current-password" required>
+      </label>
+      <button type="submit" class="btn btn-primary login-submit" id="loginSubmitBtn">Sign in</button>
+      <p class="login-error" id="loginError" style="display:none;"></p>
+    </form>
+    <p class="role-gate-note">Uses the same sign-in as the main Sales &amp; CRM Dashboard. Contact MIS if you need an account.</p>
+  </div>
+</div>
+<div id="pendingScreen" class="pending-screen" style="display:none;">
+  <div class="pending-inner">
+    <p class="role-gate-eyebrow">Created by MP Developers ERP Team</p>
+    <h1 style="font-family:'Fraunces',serif;font-size:26px;font-weight:600;margin:0 0 10px;">Account Setup</h1>
+    <div class="status-banner" id="pendingBanner"></div>
+    <div class="uid-box"><span id="pendingUidText"></span><button id="pendingCopyUidBtn" type="button">Copy</button></div>
+    <div class="btn-row-pending">
+      <button id="pendingRefreshBtn" class="primary" type="button">Refresh</button>
+      <button id="pendingSignOutBtn" type="button">Sign out</button>
+    </div>
+  </div>
+</div>
+<div id="appShell" style="display:none;">
+<header class="top">
+  <div class="header-row">
+    <div class="header-text">
+      <a class="back-link" href="./index.html">&larr; Sales &amp; CRM Dashboard</a>
+      <p class="eyebrow">Created by MP Developers ERP Team</p>
+      <h1>Purchase Dashboard</h1>
+    </div>
+    <div class="role-indicator" id="roleIndicator"></div>
+  </div>
+  <div class="tick-rule" id="tickRule"></div>
+</header>
+<main>
+<div id="dashboardView">
+  <div class="last-updated-badge" id="lastUpdatedBadge" style="display:none;"></div>
+  <div class="upload-card" id="uploadCard">
+    <h2>Load this month's purchase report</h2>
+    <p class="sub">Upload the export from IN4 ERP. Nothing leaves your browser — the file is parsed locally.</p>
+    <div class="upload-grid four">
+      <label class="drop" id="dropPurchase">
+        <div class="label">All Purchase Payments Report</div>
+        <div class="fname" id="fnamePurchase">Click to choose file (.xlsx)</div>
+        <div class="hint">ERP report name: "PUR All Purchase Payments Report" &mdash; purchase value, vendor outstanding &amp; overdue payments</div>
+        <input type="file" id="filePurchase" accept=".xlsx">
+      </label>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="genBtn" disabled>Generate &amp; publish dashboard</button>
+      <span class="footer-note">Publishing makes this visible to Management.</span>
+    </div>
+    <div class="err" id="errMsg"></div>
+    <div class="publish-status" id="publishStatus" style="display:none;"></div>
+  </div>
+  <div class="loaded-bar" id="loadedBar">
+    <div class="files"><span class="dot"></span><span id="loadedNames"></span></div>
+    <button class="btn btn-ghost" id="changeBtn">Upload new file</button>
+  </div>
+  <div id="emptyState" class="empty-state" style="display:none;">
+    <h2>No purchase dashboard has been published yet</h2>
+    <p>Check back after the MIS team uploads this month's Purchase report.</p>
+  </div>
+  <div id="dashboard" style="display:none;">
+    <div class="section-title group"><h2>Purchase</h2><div class="line"></div></div>
+    <p class="chart-note" style="margin:4px 2px 18px;">Built from the PUR All Purchase Payments Report — every purchase certificate/bill, project, vendor, PO, invoice and payment status. Total Purchase Value, Vendor Outstanding and Overdue Outstanding are covered here; Current Stock Value, Open PO Value, Pending PR Value, Stock Issued Value and Slow Moving Stock still need their own ERP reports (Stock Valuation, PO Register, PR Register, Material Issue/GRN) which haven't been uploaded yet.</p>
+    <div class="kpi-grid" id="kpiGridPurchase"></div>
+    <div class="section-title"><h2>Purchase by Project &amp; Status</h2><div class="line"></div></div>
+    <div class="chart-grid">
+      <div class="chart-card"><h3>Purchase value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartPurchaseByProject"></canvas></div></div>
+      <div class="chart-card"><h3>Certificates by payment status (as given)</h3><div class="wrap tall"><canvas id="chartPurchaseStatus"></canvas></div></div>
+    </div>
+    <div class="section-title"><h2>Outstanding</h2><div class="line"></div></div>
+    <div class="chart-grid">
+      <div class="chart-card"><h3>Outstanding: overdue vs not yet due (₹ Cr)</h3><div class="wrap tall"><canvas id="chartPurchaseOverdueSplit"></canvas></div></div>
+      <div class="chart-card"><h3>Top vendors by outstanding (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartPurchaseTopVendors"></canvas></div></div>
+    </div>
+    <div class="section-title"><h2>Certificate-wise Detail</h2><div class="line"></div></div>
+    <div class="table-toolbar">
+      <input type="text" id="purchaseSearchBox" placeholder="Search vendor, project, invoice, PO or certificate no...">
+    </div>
+    <div class="table-card">
+      <div class="table-scroll">
+        <table id="purchaseTable">
+          <thead><tr id="purchaseTheadRow"></tr></thead>
+          <tbody id="purchaseTbody"></tbody>
+          <tfoot><tr id="purchaseTfootRow"></tr></tfoot>
+        </table>
+      </div>
+    </div>
+    <div class="btn-row" style="margin-top:24px;">
+      <span class="footer-note" id="genNote"></span>
+      <div style="margin-left:auto;display:flex;gap:10px;">
+        <button class="btn btn-ghost" id="exportBtn">Download data (.xlsx)</button>
+        <button class="btn btn-ghost" id="printBtn">Print report</button>
+      </div>
+    </div>
+  </div>
+</div>
+</main>
+</div>
+<script>
+/* ============ FIREBASE AUTH + FIRESTORE (same project/users as the main dashboard) ============ */
+const firebaseConfig = {
+  apiKey: "AIzaSyC65rACXQiJMzwN0dbTgxIns0Ggn6Myl0I",
+  authDomain: "mp-dashboard-f9bf5.firebaseapp.com",
+  projectId: "mp-dashboard-f9bf5",
+  storageBucket: "mp-dashboard-f9bf5.firebasestorage.app",
+  messagingSenderId: "717474685347",
+  appId: "1:717474685347:web:47075db36ddd4781267a16",
+  measurementId: "G-PLN09Z00JG"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+// Its own Firestore collection, separate from the main dashboard's 'dashboardData' — this page
+// publishes and loads independently of Sales/CRM, same way Purchase is its own top-level module
+// in the ERP itself rather than something nested under Sales.
+const DASH_COL = db.collection('purchaseDashboardData');
+const RAW_KEYS = ['purchaseRecords'];
+let currentRole = null;
+let currentUser = null;
+let lastPublished = null; // {at: ISOString, files: [...]}
+function formatTimestamp(iso){
+  try{ return new Date(iso).toLocaleString('en-IN', {dateStyle:'medium', timeStyle:'short'}); }
+  catch(e){ return iso; }
+}
+function updateLastUpdatedBadge(){
+  const el = document.getElementById('lastUpdatedBadge');
+  if(!lastPublished){ el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  const filesNote = (lastPublished.files && lastPublished.files.length) ? ` <span class="muted-part">&middot; ${lastPublished.files.length} report${lastPublished.files.length>1?'s':''} uploaded</span>` : '';
+  el.innerHTML = `<span class="dot"></span>Data as of ${formatTimestamp(lastPublished.at)}${filesNote}`;
+}
+// Same byte-safe chunking + multi-batch commit scheme as the main dashboard (see its own comments
+// for why both layers exist) — kept here too since the Purchase report alone is ~21k rows.
+const FIRESTORE_CHUNK_MAX_BYTES = 900000;
+function utf8ByteLength(str){ return new TextEncoder().encode(str).length; }
+function splitForFirestore(str, maxBytes){
+  const parts = [];
+  let i = 0;
+  const n = str.length;
+  if(n === 0) return [''];
+  while(i < n){
+    let end = Math.min(n, i + maxBytes);
+    while(end > i + 1 && utf8ByteLength(str.slice(i, end)) > maxBytes){
+      end = i + Math.max(1, Math.floor((end - i) * 0.9));
+    }
+    parts.push(str.slice(i, end));
+    i = end;
+  }
+  return parts;
+}
+const FIRESTORE_BATCH_MAX_BYTES = 8000000;
+function groupIntoBatches(writes, maxBytes){
+  const groups = [];
+  let current = [];
+  let currentBytes = 0;
+  writes.forEach(w=>{
+    const bytes = utf8ByteLength(w.data) + 200;
+    if(current.length && currentBytes + bytes > maxBytes){
+      groups.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(w);
+    currentBytes += bytes;
+  });
+  if(current.length) groups.push(current);
+  return groups;
+}
+async function publishDashboardData(fileNames){
+  const statusEl = document.getElementById('publishStatus');
+  try{
+    const generatedAt = new Date().toISOString();
+    const sourceFiles = fileNames.filter(Boolean);
+    const chunkCounts = {};
+    const writes = [];
+    RAW_KEYS.forEach(k=>{
+      const parts = splitForFirestore(JSON.stringify(RAW[k]), FIRESTORE_CHUNK_MAX_BYTES);
+      chunkCounts[k] = parts.length;
+      parts.forEach((part, idx)=>{
+        writes.push({ id: `chunk_${k}_${idx}`, data: part });
+      });
+    });
+    for(const group of groupIntoBatches(writes, FIRESTORE_BATCH_MAX_BYTES)){
+      const batch = db.batch();
+      group.forEach(w => batch.set(DASH_COL.doc(w.id), { data: w.data }));
+      await batch.commit();
+    }
+    await DASH_COL.doc('meta').set({ generatedAt, sourceFiles, chunkCounts });
+    lastPublished = { at: generatedAt, files: sourceFiles };
+    updateLastUpdatedBadge();
+    if(statusEl){
+      statusEl.className = 'publish-status ok';
+      statusEl.textContent = 'Published — Management can now see this data.';
+      statusEl.style.display = 'block';
+    }
+  }catch(err){
+    console.error('Publish failed', err);
+    if(statusEl){
+      statusEl.className = 'publish-status err';
+      statusEl.textContent = 'Publishing failed (' + err.message + '). Check your connection and Firestore rules, then try again.';
+      statusEl.style.display = 'block';
+    }
+  }
+}
+async function tryLoadPublishedData(){
+  try{
+    const metaDoc = await DASH_COL.doc('meta').get();
+    if(!metaDoc.exists) return false;
+    const meta = metaDoc.data();
+    const chunkCounts = meta.chunkCounts || {};
+    const reads = [];
+    RAW_KEYS.forEach(k=>{
+      const count = chunkCounts[k];
+      if(count){
+        for(let idx=0; idx<count; idx++) reads.push({ key:k, idx, ref: DASH_COL.doc(`chunk_${k}_${idx}`) });
+      } else {
+        reads.push({ key:k, idx:0, ref: DASH_COL.doc('chunk_'+k), optional:true });
+      }
+    });
+    const snaps = await Promise.all(reads.map(r => r.ref.get()));
+    const partsByKey = {};
+    for(let i=0;i<reads.length;i++){
+      const { key, idx, optional } = reads[i];
+      if(!snaps[i].exists){
+        if(optional) continue;
+        console.error('Missing data chunk:', key, idx);
+        return false;
+      }
+      if(!partsByKey[key]) partsByKey[key] = [];
+      partsByKey[key][idx] = snaps[i].data().data;
+    }
+    const newRAW = {};
+    for(const k of RAW_KEYS){
+      const parts = partsByKey[k];
+      newRAW[k] = parts ? JSON.parse(parts.join('')) : [];
+    }
+    RAW = newRAW;
+    filterState = { project:'', fy:[], month:[] };
+    renderPurchasePage();
+    lastPublished = { at: meta.generatedAt, files: meta.sourceFiles || [] };
+    updateLastUpdatedBadge();
+    return true;
+  }catch(err){
+    console.error('Load published data failed', err);
+    return false;
+  }
+}
+/* ============ AUTH FLOW (same roles collection as the main dashboard) ============ */
+const ROLE_LABELS = { admin: 'Admin', mis: 'MIS Team', management: 'Management' };
+const UPLOAD_ROLES = ['admin', 'mis'];
+let authStateGeneration = 0;
+function setStyle(id, prop, value){ const el = document.getElementById(id); if(el) el.style[prop] = value; }
+function removeEl(id){ const el = document.getElementById(id); if(el) el.remove(); }
+async function enterRole(role, user, myGeneration){
+  currentRole = role;
+  currentUser = user;
+  setStyle('roleGate','display','none');
+  setStyle('pendingScreen','display','none');
+  setStyle('appShell','display','block');
+  const indicator = document.getElementById('roleIndicator');
+  if(indicator){
+    indicator.innerHTML = `<span class="badge">${ROLE_LABELS[role] || role} &middot; ${user.email}</span><button id="signOutBtn">Sign out</button>`;
+    const soBtn = document.getElementById('signOutBtn');
+    if(soBtn) soBtn.addEventListener('click', ()=> auth.signOut());
+  }
+  if(!UPLOAD_ROLES.includes(role)){
+    removeEl('uploadCard');
+    removeEl('loadedBar');
+    const loaded = await tryLoadPublishedData();
+    if(myGeneration !== authStateGeneration) return;
+    setStyle('dashboard','display', loaded ? 'block' : 'none');
+    setStyle('emptyState','display', loaded ? 'none' : 'block');
+  } else {
+    removeEl('emptyState');
+    const loaded = await tryLoadPublishedData();
+    if(myGeneration !== authStateGeneration) return;
+    if(loaded){
+      setStyle('uploadCard','display','none');
+      setStyle('loadedBar','display','flex');
+      const namesEl = document.getElementById('loadedNames');
+      if(namesEl) namesEl.innerHTML = lastPublished.files.length
+        ? `Showing published dashboard (${lastPublished.files.join(' + ')})`
+        : 'Showing published dashboard';
+      setStyle('dashboard','display','block');
+    }
+  }
+}
+function showPendingScreen(user, isUnknownRole){
+  setStyle('roleGate','display','none');
+  setStyle('appShell','display','none');
+  setStyle('pendingScreen','display','flex');
+  const uidEl = document.getElementById('pendingUidText');
+  if(uidEl) uidEl.textContent = user.uid;
+  const bannerEl = document.getElementById('pendingBanner');
+  if(bannerEl) bannerEl.innerHTML = isUnknownRole
+    ? `<b>No access assigned.</b> Contact your administrator — this account has an unrecognised access level.`
+    : `<b>Waiting for approval.</b> ${user.email} has signed in but your administrator hasn't granted access yet. Ask them to assign your role on the main Sales &amp; CRM Dashboard, then click Refresh.`;
+}
+document.getElementById('pendingCopyUidBtn').addEventListener('click', ()=>{
+  navigator.clipboard.writeText(currentUser.uid).then(()=>{
+    const b = document.getElementById('pendingCopyUidBtn');
+    b.textContent = 'Copied!'; setTimeout(()=> b.textContent = 'Copy', 1500);
+  });
+});
+document.getElementById('pendingSignOutBtn').addEventListener('click', ()=> auth.signOut());
+document.getElementById('pendingRefreshBtn').addEventListener('click', ()=> location.reload());
+document.getElementById('loginForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  const btn = document.getElementById('loginSubmitBtn');
+  errEl.style.display = 'none';
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  try{
+    await auth.signInWithEmailAndPassword(email, password);
+  }catch(err){
+    errEl.textContent = err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found'
+      ? 'Incorrect email or password.' : ('Sign-in failed: ' + err.message);
+    errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Sign in';
+  }
+});
+auth.onAuthStateChanged(async (user)=>{
+  const myGeneration = ++authStateGeneration;
+  const btn = document.getElementById('loginSubmitBtn');
+  if(!user){
+    setStyle('roleGate','display','flex');
+    setStyle('pendingScreen','display','none');
+    setStyle('appShell','display','none');
+    if(btn){ btn.disabled = false; btn.textContent = 'Sign in'; }
+    return;
+  }
+  currentUser = user;
+  try{
+    const roleDocRef = db.collection('roles').doc(user.uid);
+    const roleDoc = await roleDocRef.get();
+    if(myGeneration !== authStateGeneration) return;
+    let role;
+    if(roleDoc.exists){
+      role = roleDoc.data().role;
+    } else {
+      await roleDocRef.set({ role: 'pending', email: user.email });
+      if(myGeneration !== authStateGeneration) return;
+      role = 'pending';
+    }
+    if(role === 'admin' || role === 'mis' || role === 'management'){
+      await enterRole(role, user, myGeneration);
+    } else {
+      showPendingScreen(user, role !== 'pending');
+    }
+  }catch(err){
+    console.error('Role lookup failed', err);
+    if(myGeneration !== authStateGeneration) return;
+    const errEl = document.getElementById('loginError');
+    if(errEl){ errEl.textContent = 'Could not verify account access: ' + err.message; errEl.style.display = 'block'; }
+    if(btn){ btn.disabled = false; btn.textContent = 'Sign in'; }
+    await auth.signOut();
+  }
+});
+/* ============ UPLOAD / PARSE / RENDER ============ */
+let fileData = null;
+let RAW = { purchaseRecords: [] };
+let charts = {};
+const sortStates = {};
+function readFileAsWB(file){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onload = e => {
+      try{
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data,{type:'array'});
+        resolve(wb);
+      }catch(err){reject(err);}
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+function sheetToRows(ws){
+  return XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
+}
+function normalizeHeader(v){
+  return (v+'').replace(/\(\d+\)/g,'').replace(/\s+/g,' ').trim();
+}
+function excelSerialToDate(serial){
+  if(typeof XLSX !== 'undefined' && XLSX.SSF && XLSX.SSF.parse_date_code){
+    const d = XLSX.SSF.parse_date_code(serial);
+    if(d) return new Date(d.y, d.m-1, d.d, d.H||0, d.M||0, Math.floor(d.S||0));
+  }
+  return new Date(Math.round((serial - 25569) * 86400 * 1000));
+}
+function parseDateAny(v){
+  if(v === null || v === undefined || v === '') return null;
+  let d;
+  if(v instanceof Date) d = v;
+  else if(typeof v === 'number' && isFinite(v)) d = excelSerialToDate(v);
+  else if(typeof v === 'string' && v.trim()) d = new Date(v);
+  else return null;
+  return isNaN(d.getTime()) ? null : d;
+}
+function fmtDateAny(v){
+  if(v === null || v === undefined || v === '') return '—';
+  const d = parseDateAny(v);
+  if(!d) return (typeof v === 'string' && v.trim()) ? v : '—';
+  return d.toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
+}
+function fmtINRCr(n){
+  if(n === null || n === undefined) return '—';
+  if(Math.abs(n) >= 1e7) return '₹' + (n/1e7).toLocaleString('en-IN',{maximumFractionDigits:2}) + ' Cr';
+  if(Math.abs(n) >= 1e5) return '₹' + (n/1e5).toLocaleString('en-IN',{maximumFractionDigits:2}) + ' L';
+  return '₹' + n.toLocaleString('en-IN',{maximumFractionDigits:0});
+}
+function fmtNum(n){
+  if(n === null || n === undefined) return '—';
+  return Math.round(n).toLocaleString('en-IN');
+}
+function destroyChart(key){ if(charts[key]){ charts[key].destroy(); delete charts[key]; } }
+function chartEmptyMessage(canvasId, message){
+  const canvas = document.getElementById(canvasId);
+  if(!canvas) return;
+  const wrap = canvas.closest('.wrap');
+  canvas.style.display = 'none';
+  if(!wrap) return;
+  let msgEl = wrap.querySelector('.chart-empty-msg');
+  if(!msgEl){ msgEl = document.createElement('div'); msgEl.className = 'chart-empty-msg'; wrap.appendChild(msgEl); }
+  msgEl.textContent = message;
+}
+function chartClearEmptyMessage(canvasId){
+  const canvas = document.getElementById(canvasId);
+  if(!canvas) return;
+  const wrap = canvas.closest('.wrap');
+  canvas.style.display = '';
+  if(!wrap) return;
+  const msgEl = wrap.querySelector('.chart-empty-msg');
+  if(msgEl) msgEl.remove();
+}
+function renderGenericTable(opts){
+  const {theadId, columns, defaultSort, sortStateKey, searchId, filterSelectId} = opts;
+  if(!sortStates[sortStateKey]) sortStates[sortStateKey] = {...defaultSort};
+  const state = sortStates[sortStateKey];
+  const thead = document.getElementById(theadId);
+  thead.innerHTML = columns.map(c=>`<th data-key="${c.key}" style="text-align:${c.align||'right'}">${c.label}<span class="arrow">${state.key===c.key ? (state.dir>0?'▲':'▼') : ''}</span></th>`).join('');
+  thead.querySelectorAll('th').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const key = th.dataset.key;
+      if(state.key === key) state.dir *= -1; else { state.key = key; state.dir = -1; }
+      renderGenericTableBody(opts);
+    });
+  });
+  const searchEl = document.getElementById(searchId);
+  if(searchEl && !searchEl.dataset.wired){
+    searchEl.addEventListener('input', ()=> renderGenericTableBody(opts));
+    searchEl.dataset.wired = '1';
+  }
+  if(filterSelectId){
+    const filterEl = document.getElementById(filterSelectId);
+    if(filterEl && !filterEl.dataset.wired){
+      filterEl.addEventListener('change', ()=> renderGenericTableBody(opts));
+      filterEl.dataset.wired = '1';
+    }
+  }
+  renderGenericTableBody(opts);
+}
+function renderGenericTableBody(opts){
+  const {tbodyId, tfootId, searchId, sortStateKey, columns, rowsSource, totalsLabel, filterSelectId, filterKey, searchFields} = opts;
+  const labelKey = columns[0].key;
+  const state = sortStates[sortStateKey];
+  const search = (document.getElementById(searchId).value||'').trim().toLowerCase();
+  const fields = searchFields || ['project'];
+  let rows = rowsSource.filter(r=> fields.some(f => (''+(r[f]||'')).toLowerCase().includes(search)));
+  if(filterSelectId){
+    const filterVal = document.getElementById(filterSelectId).value;
+    if(filterVal) rows = rows.filter(r=> r[filterKey] === filterVal);
+  }
+  rows.sort((a,b)=>{
+    let av = a[state.key], bv = b[state.key];
+    if(typeof av === 'string' || typeof bv === 'string') return state.dir * (''+av).localeCompare(''+bv);
+    av = (av===null||av===undefined) ? -Infinity : av;
+    bv = (bv===null||bv===undefined) ? -Infinity : bv;
+    return state.dir * (av-bv);
+  });
+  document.getElementById(tbodyId).innerHTML = rows.map(r=>{
+    return '<tr>' + columns.map(c=>{
+      const v = r[c.key];
+      const cls = c.key===labelKey ? 'proj' : ((v===null || v==='') ? 'muted-cell' : '');
+      const display = c.fmt ? c.fmt(v) : (v===''||v===null||v===undefined ? '—' : v);
+      return `<td class="${cls}">${display}</td>`;
+    }).join('') + '</tr>';
+  }).join('');
+  const totals = {};
+  columns.forEach(c=>{ if(c.key !== labelKey && !c.noSum && !c.key.toLowerCase().includes('rate')) totals[c.key] = 0; });
+  rows.forEach(r=>{
+    columns.forEach(c=>{
+      if(c.key === labelKey || c.noSum || c.key.toLowerCase().includes('rate')) return;
+      totals[c.key] += (r[c.key]||0);
+    });
+  });
+  const tfootCells = columns.map(c=>{
+    if(c.key === labelKey) return `<td class="proj">Total (${rows.length} ${totalsLabel})</td>`;
+    if(c.noSum || c.key.toLowerCase().includes('rate')) return `<td>—</td>`;
+    return `<td>${c.fmt ? c.fmt(totals[c.key]) : totals[c.key]}</td>`;
+  });
+  document.getElementById(tfootId).innerHTML = tfootCells.join('');
+}
+function parsePurchaseRecords(wb){
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = sheetToRows(ws);
+  let headerIdx = rows.findIndex(r => r.some(c => normalizeHeader(c) === 'Vendor Name'));
+  if(headerIdx < 0) headerIdx = 2;
+  const headerRow = rows[headerIdx] || [];
+  const col = {};
+  headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
+  const findCol = (prefix, fallback) => {
+    if(col[prefix] !== undefined) return col[prefix];
+    const key = Object.keys(col).find(k => k.startsWith(prefix));
+    return key !== undefined ? col[key] : fallback;
+  };
+  const companyIdx = findCol('COMPANY', 0);
+  const projectIdx = findCol('PROJECT', 1);
+  const subProjectIdx = findCol('SUBPROJECT', 2);
+  const poIdx = findCol('PO. No.', 3);
+  const certTypeIdx = findCol('Certificate Type', 5);
+  const certNoIdx = findCol('Cert. No.', 7);
+  const creationDateIdx = findCol('Creation Date', 8);
+  const processedDateIdx = findCol('Processed Date', 11);
+  const dueDateIdx = findCol('Due Date', 12);
+  const statusIdx = findCol('Status', 13);
+  const vendorIdx = findCol('Vendor Name', 14);
+  const materialTypeIdx = findCol('Material/Asset Type', 16);
+  const invoiceNoIdx = findCol('Inv. No', 18);
+  const invoiceDateIdx = findCol('Inv. Date', 19);
+  const invoiceAmtIdx = findCol('Inv. Amt', 20);
+  const baseAmtIdx = findCol('Base Amt', 21);
+  const totalCostIdx = findCol('Total Cost', 28);
+  const netPayableIdx = findCol('Net. Payable Amt', 32);
+  const paidAmtIdx = findCol('Paid Amt', 36);
+  const outstandingAmtIdx = findCol('Outstanding Amt', 37);
+  const numOr0 = v => typeof v === 'number' ? v : 0;
+  const records = [];
+  for(let i=headerIdx+1; i<rows.length; i++){
+    const r = rows[i];
+    const vendor = r[vendorIdx];
+    if(vendor === null || vendor === undefined || (typeof vendor === 'string' && vendor.trim() === '')) continue;
+    records.push({
+      company: r[companyIdx] || '', project: (r[projectIdx] || '').toString().trim() || 'Unspecified',
+      subProject: r[subProjectIdx] || '', poNo: r[poIdx] || '', certType: r[certTypeIdx] || '', certNo: r[certNoIdx] || '',
+      creationDate: r[creationDateIdx] || '', processedDate: r[processedDateIdx] || '', dueDate: r[dueDateIdx] || '',
+      status: (r[statusIdx] || '').toString().trim() || 'Unspecified', vendor: vendor.toString().trim(),
+      materialType: r[materialTypeIdx] || '', invoiceNo: r[invoiceNoIdx] || '', invoiceDate: r[invoiceDateIdx] || '',
+      invoiceAmt: numOr0(r[invoiceAmtIdx]), baseAmt: numOr0(r[baseAmtIdx]), totalCost: numOr0(r[totalCostIdx]),
+      netPayableAmt: numOr0(r[netPayableIdx]), paidAmt: numOr0(r[paidAmtIdx]), outstandingAmt: numOr0(r[outstandingAmtIdx]),
+    });
+  }
+  return records;
+}
+function renderPurchasePage(){
+  const records = RAW.purchaseRecords;
+  const kpiEl = document.getElementById('kpiGridPurchase');
+  if(!records.length){
+    if(kpiEl) kpiEl.innerHTML = '';
+    destroyChart('purchaseByProject'); destroyChart('purchaseStatus'); destroyChart('purchaseOverdueSplit'); destroyChart('purchaseTopVendors');
+    return;
+  }
+  const today = new Date();
+  const isOverdue = r => r.outstandingAmt > 0 && (()=>{ const d = parseDateAny(r.dueDate); return d && d < today; })();
+  const totalPurchaseValue = records.reduce((a,r)=>a+r.totalCost,0);
+  const outstandingRecords = records.filter(r => r.outstandingAmt > 0);
+  const vendorOutstandingTotal = outstandingRecords.reduce((a,r)=>a+r.outstandingAmt,0);
+  const overdueRecords = records.filter(isOverdue);
+  const overdueTotal = overdueRecords.reduce((a,r)=>a+r.outstandingAmt,0);
+  const vendorCount = new Set(records.map(r=>r.vendor)).size;
+  if(kpiEl){
+    kpiEl.innerHTML = [
+      {lbl:'Total Purchase Value', val: fmtINRCr(totalPurchaseValue), sub: `${fmtNum(records.length)} certificates &middot; ${fmtNum(vendorCount)} vendors`},
+      {lbl:'Vendor Outstanding', val: fmtINRCr(vendorOutstandingTotal), sub: `${fmtNum(outstandingRecords.length)} certificates with a balance due`},
+      {lbl:'Overdue Outstanding', val: fmtINRCr(overdueTotal), sub: `${fmtNum(overdueRecords.length)} certificates past their due date`},
+    ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+  }
+  const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
+  const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
+  const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
+  const brick = getComputedStyle(document.documentElement).getPropertyValue('--brick').trim();
+  const projectMap = {};
+  records.forEach(r=>{ projectMap[r.project] = (projectMap[r.project]||0) + r.totalCost; });
+  const byProject = Object.entries(projectMap).map(([project,total])=>({project,total})).filter(p=>p.total>0).sort((a,b)=>b.total-a.total).slice(0,15);
+  destroyChart('purchaseByProject');
+  if(byProject.length === 0){
+    chartEmptyMessage('chartPurchaseByProject', 'No purchase value to show.');
+  } else {
+  chartClearEmptyMessage('chartPurchaseByProject');
+  charts.purchaseByProject = new Chart(document.getElementById('chartPurchaseByProject'), {
+    type:'bar',
+    data:{ labels: byProject.map(p=>p.project), datasets:[{ label:'Purchase Value', data: byProject.map(p=>p.total/1e7), backgroundColor: navy }] },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
+      plugins:{
+        legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
+        datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:11}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
+      }
+    },
+    plugins:[ChartDataLabels]
+  });
+  }
+  const statusMap = {};
+  records.forEach(r=>{ statusMap[r.status] = (statusMap[r.status]||0) + 1; });
+  const byStatus = Object.entries(statusMap).sort((a,b)=>b[1]-a[1]);
+  const statusColors = [teal, gold, brick, navy, '#8B2E2E', '#6C7A89'];
+  destroyChart('purchaseStatus');
+  if(byStatus.length === 0){
+    chartEmptyMessage('chartPurchaseStatus', 'No certificates to show.');
+  } else {
+  chartClearEmptyMessage('chartPurchaseStatus');
+  charts.purchaseStatus = new Chart(document.getElementById('chartPurchaseStatus'), {
+    type:'doughnut',
+    data:{ labels: byStatus.map(s=>s[0]), datasets:[{ data: byStatus.map(s=>s[1]), backgroundColor: byStatus.map((s,i)=>statusColors[i%statusColors.length]), borderWidth:2, borderColor:'#fff' }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}},
+        datalabels:{ color:'#fff', font:{weight:'700',size:11}, formatter:(v)=> v>0 ? v.toLocaleString('en-IN') : '' }
+      }
+    },
+    plugins:[ChartDataLabels]
+  });
+  }
+  const overdueSplit = [
+    {label:'Overdue', value: overdueTotal, color: brick},
+    {label:'Not Yet Due', value: vendorOutstandingTotal - overdueTotal, color: teal},
+  ];
+  destroyChart('purchaseOverdueSplit');
+  if(vendorOutstandingTotal <= 0){
+    chartEmptyMessage('chartPurchaseOverdueSplit', 'No outstanding balance to split.');
+  } else {
+  chartClearEmptyMessage('chartPurchaseOverdueSplit');
+  charts.purchaseOverdueSplit = new Chart(document.getElementById('chartPurchaseOverdueSplit'), {
+    type:'doughnut',
+    data:{ labels: overdueSplit.map(s=>s.label), datasets:[{ data: overdueSplit.map(s=>s.value/1e7), backgroundColor: overdueSplit.map(s=>s.color), borderWidth:2, borderColor:'#fff' }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}},
+        tooltip:{callbacks:{label: ctx=> ctx.label+': ₹'+ctx.raw.toFixed(2)+' Cr'}},
+        datalabels:{ color:'#fff', font:{weight:'700',size:11}, formatter:(v)=> v>0.005 ? '₹'+v.toFixed(1)+'Cr' : '' }
+      }
+    },
+    plugins:[ChartDataLabels]
+  });
+  }
+  const vendorMap = {};
+  outstandingRecords.forEach(r=>{ vendorMap[r.vendor] = (vendorMap[r.vendor]||0) + r.outstandingAmt; });
+  const byVendor = Object.entries(vendorMap).map(([vendor,total])=>({vendor,total})).sort((a,b)=>b.total-a.total).slice(0,15);
+  destroyChart('purchaseTopVendors');
+  if(byVendor.length === 0){
+    chartEmptyMessage('chartPurchaseTopVendors', 'No vendor outstanding to show.');
+  } else {
+  chartClearEmptyMessage('chartPurchaseTopVendors');
+  charts.purchaseTopVendors = new Chart(document.getElementById('chartPurchaseTopVendors'), {
+    type:'bar',
+    data:{ labels: byVendor.map(v=>v.vendor), datasets:[{ label:'Outstanding', data: byVendor.map(v=>v.total/1e7), backgroundColor: brick }] },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      scales:{ x:{ title:{display:true,text:'₹ Crore outstanding'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false} } },
+      plugins:{
+        legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
+        datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:11}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
+      }
+    },
+    plugins:[ChartDataLabels]
+  });
+  }
+  renderGenericTable({
+    theadId:'purchaseTheadRow', tbodyId:'purchaseTbody', tfootId:'purchaseTfootRow', searchId:'purchaseSearchBox',
+    searchFields:['vendor','project','invoiceNo','poNo','certNo'],
+    sortStateKey:'purchase',
+    columns:[
+      {key:'vendor', label:'Vendor', align:'left'},
+      {key:'project', label:'Project', align:'left', noSum:true},
+      {key:'poNo', label:'PO No', align:'left', noSum:true},
+      {key:'certNo', label:'Cert No', align:'left', noSum:true},
+      {key:'status', label:'Status', align:'left', noSum:true},
+      {key:'invoiceDate', label:'Invoice Date', align:'left', noSum:true, fmt:fmtDateAny},
+      {key:'dueDate', label:'Due Date', align:'left', noSum:true, fmt:fmtDateAny},
+      {key:'totalCost', label:'Total Cost', fmt:fmtINRCr},
+      {key:'paidAmt', label:'Paid Amt', fmt:fmtINRCr},
+      {key:'outstandingAmt', label:'Outstanding', fmt:fmtINRCr},
+    ],
+    rowsSource: records,
+    defaultSort:{key:'outstandingAmt', dir:-1},
+    totalsLabel:'certificates'
+  });
+}
+/* ============ UPLOAD WIRING ============ */
+function wireDrop(dropId, fileId, fnameId, onPick){
+  const drop = document.getElementById(dropId);
+  const input = document.getElementById(fileId);
+  const fname = document.getElementById(fnameId);
+  input.addEventListener('change', ()=>{
+    if(input.files && input.files[0]){
+      fname.textContent = input.files[0].name;
+      drop.classList.add('filled');
+      onPick(input.files[0]);
+    }
+  });
+}
+wireDrop('dropPurchase','filePurchase','fnamePurchase', f=>{ fileData = f; checkReady(); });
+function checkReady(){
+  document.getElementById('genBtn').disabled = !fileData;
+}
+document.getElementById('genBtn').addEventListener('click', async ()=>{
+  const errEl = document.getElementById('errMsg');
+  errEl.style.display='none';
+  try{
+    const wb = await readFileAsWB(fileData);
+    RAW.purchaseRecords = parsePurchaseRecords(wb);
+    if(RAW.purchaseRecords.length === 0) throw new Error('No purchase records could be recognised in this file.');
+    renderPurchasePage();
+    const fileNames = [fileData.name];
+    document.getElementById('uploadCard').style.display='none';
+    document.getElementById('loadedBar').style.display='flex';
+    document.getElementById('loadedNames').textContent = 'Loaded ' + fileNames.join(' + ');
+    document.getElementById('dashboard').style.display='block';
+    document.getElementById('genNote').textContent = 'Generated ' + new Date().toLocaleString('en-IN', {dateStyle:'medium', timeStyle:'short'}) + ' from the uploaded report.';
+    document.getElementById('genBtn').disabled = true;
+    document.getElementById('genBtn').textContent = 'Publishing…';
+    await publishDashboardData(fileNames);
+    document.getElementById('genBtn').disabled = false;
+    document.getElementById('genBtn').textContent = 'Generate & publish dashboard';
+  }catch(err){
+    console.error(err);
+    errEl.textContent = 'Could not read this file: ' + err.message + '. Make sure you selected the PUR All Purchase Payments Report exported from IN4 ERP.';
+    errEl.style.display='block';
+  }
+});
+document.getElementById('changeBtn').addEventListener('click', ()=>{
+  document.getElementById('uploadCard').style.display='block';
+  document.getElementById('loadedBar').style.display='none';
+  document.getElementById('publishStatus').style.display='none';
+});
+document.getElementById('printBtn').addEventListener('click', ()=> window.print());
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  const wb = XLSX.utils.book_new();
+  const purchaseExport = RAW.purchaseRecords.map(r=>({
+    'Vendor': r.vendor, 'Company': r.company, 'Project': r.project, 'Sub Project': r.subProject,
+    'PO No': r.poNo, 'Cert No': r.certNo, 'Certificate Type': r.certType, 'Status': r.status,
+    'Invoice No': r.invoiceNo, 'Invoice Date': r.invoiceDate, 'Due Date': r.dueDate,
+    'Base Amt (₹)': r.baseAmt, 'Total Cost (₹)': r.totalCost, 'Net Payable Amt (₹)': r.netPayableAmt,
+    'Paid Amt (₹)': r.paidAmt, 'Outstanding Amt (₹)': r.outstandingAmt,
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(purchaseExport), 'Purchase Payments');
+  XLSX.writeFile(wb, 'MP_Developers_Purchase_' + new Date().toISOString().slice(0,10) + '.xlsx');
+});
+</script>
+</body>
+</html>
