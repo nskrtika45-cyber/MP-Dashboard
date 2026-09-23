@@ -451,6 +451,22 @@
       <div class="chart-card"><h3>Outstanding: overdue vs not yet due (₹ Cr)</h3><div class="wrap tall"><canvas id="chartPurchaseOverdueSplit"></canvas></div></div>
       <div class="chart-card"><h3>Top vendors by outstanding (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartPurchaseTopVendors"></canvas></div></div>
     </div>
+    <div class="section-title"><h2>FY-wise Payment Summary</h2><div class="line"></div></div>
+    <p class="chart-note" style="margin:4px 2px 18px;">Grouped by each certificate's Creation Date (Apr&ndash;Mar financial year). "Paid" and "Processed" are the ERP's own Status values; "Not Paid" covers everything else still pending (Approved, Submitted, Partially Paid).</p>
+    <div class="table-card">
+      <div class="table-scroll">
+        <table id="purchaseFYTable">
+          <thead><tr id="purchaseFYTheadRow"></tr></thead>
+          <tbody id="purchaseFYTbody"></tbody>
+          <tfoot><tr id="purchaseFYTfootRow"></tr></tfoot>
+        </table>
+      </div>
+    </div>
+    <div class="btn-row" style="margin-top:12px;margin-bottom:24px;">
+      <div style="margin-left:auto;">
+        <button class="btn btn-ghost" id="exportFYBtn">Download FY summary (.xlsx)</button>
+      </div>
+    </div>
     <div class="section-title"><h2>Certificate-wise Detail</h2><div class="line"></div></div>
     <div class="table-toolbar">
       <input type="text" id="purchaseSearchBox" placeholder="Search vendor, project, invoice, PO or certificate no...">
@@ -742,6 +758,9 @@ let fileData = null;
 let RAW = { purchaseRecords: [] };
 let charts = {};
 const sortStates = {};
+// FY-wise Payment Summary — cached here so the "Download Excel" button on that table can export
+// exactly the rows currently on screen without recomputing them.
+let purchaseFYSummaryData = [];
 function readFileAsWB(file){
   return new Promise((resolve,reject)=>{
     const reader = new FileReader();
@@ -768,6 +787,20 @@ function excelSerialToDate(serial){
     if(d) return new Date(d.y, d.m-1, d.d, d.H||0, d.M||0, Math.floor(d.S||0));
   }
   return new Date(Math.round((serial - 25569) * 86400 * 1000));
+}
+// Ported byte-identical from index.html — same Apr-Mar financial year convention used for every
+// FY breakdown on the main dashboard, so "FY2025-26" here means the same thing there.
+function financialYearOf(dateVal){
+  let d;
+  if(dateVal instanceof Date) d = dateVal;
+  else if(typeof dateVal === 'number' && isFinite(dateVal)) d = excelSerialToDate(dateVal);
+  else if(typeof dateVal === 'string' && dateVal.trim()){
+    d = new Date(dateVal);
+  } else return null;
+  if(isNaN(d.getTime())) return null;
+  const y = d.getFullYear(), m = d.getMonth()+1; // 1-12
+  if(m >= 4) return { label: 'FY' + y + '-' + String(y+1).slice(-2), sortKey: y };
+  return { label: 'FY' + (y-1) + '-' + String(y).slice(-2), sortKey: y-1 };
 }
 function parseDateAny(v){
   if(v === null || v === undefined || v === '') return null;
@@ -916,13 +949,20 @@ function parsePurchaseRecords(wb){
   const paidAmtIdx = findCol('Paid Amt', 36);
   const outstandingAmtIdx = findCol('Outstanding Amt', 37);
   const numOr0 = v => typeof v === 'number' ? v : 0;
+  // Hardcoded exclusion: "Chiron Property" certificates are dropped from every Purchase figure —
+  // KPIs, charts, the FY-wise summary, the certificate table and both Excel exports — since they're
+  // excluded at the source here, not filtered out later in any one view. Matched case-insensitively
+  // and trimmed so "CHIRON PROPERTY", "Chiron Property " etc. are all caught the same way.
+  const EXCLUDED_COMPANIES = ['chiron property'];
   const records = [];
   for(let i=headerIdx+1; i<rows.length; i++){
     const r = rows[i];
     const vendor = r[vendorIdx];
     if(vendor === null || vendor === undefined || (typeof vendor === 'string' && vendor.trim() === '')) continue;
+    const companyName = (r[companyIdx] || '').toString().trim();
+    if(EXCLUDED_COMPANIES.includes(companyName.toLowerCase())) continue;
     records.push({
-      company: r[companyIdx] || '', project: (r[projectIdx] || '').toString().trim() || 'Unspecified',
+      company: companyName, project: (r[projectIdx] || '').toString().trim() || 'Unspecified',
       subProject: r[subProjectIdx] || '', poNo: r[poIdx] || '', certType: r[certTypeIdx] || '', certNo: r[certNoIdx] || '',
       creationDate: r[creationDateIdx] || '', processedDate: r[processedDateIdx] || '', dueDate: r[dueDateIdx] || '',
       status: (r[statusIdx] || '').toString().trim() || 'Unspecified', vendor: vendor.toString().trim(),
@@ -933,12 +973,85 @@ function parsePurchaseRecords(wb){
   }
   return records;
 }
+// FY-wise Payment Summary — grouped by each certificate's Creation Date (Apr-Mar financial year,
+// same convention as the main dashboard). Uses the ERP's own Status field: "Paid" and "Processed"
+// are their own buckets (those are the ERP's literal status values); everything else (Approved,
+// Submitted, Partially Paid, or any unrecognised status) is rolled into "Not Paid" since none of
+// those represent a completed payment yet. Cached on purchaseFYSummaryData so the "Download Excel"
+// button below the table can export exactly the rows on screen.
+function renderPurchaseFYSummary(records){
+  const theadEl = document.getElementById('purchaseFYTheadRow');
+  const tbodyEl = document.getElementById('purchaseFYTbody');
+  const tfootEl = document.getElementById('purchaseFYTfootRow');
+  if(!theadEl || !tbodyEl || !tfootEl) return;
+  const headers = ['Financial Year','Certificates','Paid (Count)','Paid (₹ Cr)','Processed (Count)','Processed (₹ Cr)','Not Paid (Count)','Not Paid (₹ Cr)','Total Value (₹ Cr)'];
+  theadEl.innerHTML = headers.map((h,i)=>`<th style="text-align:${i===0?'left':'right'}">${h}</th>`).join('');
+  const fyMap = {};
+  records.forEach(r=>{
+    const fy = financialYearOf(r.creationDate);
+    if(!fy) return; // no recognisable Creation Date on this row — excluded from the FY breakdown
+    if(!fyMap[fy.label]){
+      fyMap[fy.label] = { label: fy.label, sortKey: fy.sortKey, certificates:0,
+        paidCount:0, paidValue:0, processedCount:0, processedValue:0, notPaidCount:0, notPaidValue:0, totalValue:0 };
+    }
+    const g = fyMap[fy.label];
+    g.certificates += 1;
+    g.totalValue += r.totalCost;
+    if(r.status === 'Paid'){ g.paidCount += 1; g.paidValue += r.totalCost; }
+    else if(r.status === 'Processed'){ g.processedCount += 1; g.processedValue += r.totalCost; }
+    else { g.notPaidCount += 1; g.notPaidValue += r.totalCost; }
+  });
+  purchaseFYSummaryData = Object.values(fyMap).sort((a,b)=>a.sortKey-b.sortKey);
+  if(purchaseFYSummaryData.length === 0){
+    tbodyEl.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:16px;">No certificates with a recognisable Creation Date to summarise.</td></tr>';
+    tfootEl.innerHTML = '';
+    return;
+  }
+  tbodyEl.innerHTML = purchaseFYSummaryData.map(g=>`
+    <tr>
+      <td>${g.label}</td>
+      <td style="text-align:right;">${fmtNum(g.certificates)}</td>
+      <td style="text-align:right;">${fmtNum(g.paidCount)}</td>
+      <td style="text-align:right;">${fmtINRCr(g.paidValue)}</td>
+      <td style="text-align:right;">${fmtNum(g.processedCount)}</td>
+      <td style="text-align:right;">${fmtINRCr(g.processedValue)}</td>
+      <td style="text-align:right;">${fmtNum(g.notPaidCount)}</td>
+      <td style="text-align:right;">${fmtINRCr(g.notPaidValue)}</td>
+      <td style="text-align:right;">${fmtINRCr(g.totalValue)}</td>
+    </tr>
+  `).join('');
+  const grand = purchaseFYSummaryData.reduce((a,g)=>({
+    certificates: a.certificates+g.certificates,
+    paidCount: a.paidCount+g.paidCount, paidValue: a.paidValue+g.paidValue,
+    processedCount: a.processedCount+g.processedCount, processedValue: a.processedValue+g.processedValue,
+    notPaidCount: a.notPaidCount+g.notPaidCount, notPaidValue: a.notPaidValue+g.notPaidValue,
+    totalValue: a.totalValue+g.totalValue,
+  }), {certificates:0,paidCount:0,paidValue:0,processedCount:0,processedValue:0,notPaidCount:0,notPaidValue:0,totalValue:0});
+  tfootEl.innerHTML = `
+    <td><b>All FY</b></td>
+    <td style="text-align:right;"><b>${fmtNum(grand.certificates)}</b></td>
+    <td style="text-align:right;"><b>${fmtNum(grand.paidCount)}</b></td>
+    <td style="text-align:right;"><b>${fmtINRCr(grand.paidValue)}</b></td>
+    <td style="text-align:right;"><b>${fmtNum(grand.processedCount)}</b></td>
+    <td style="text-align:right;"><b>${fmtINRCr(grand.processedValue)}</b></td>
+    <td style="text-align:right;"><b>${fmtNum(grand.notPaidCount)}</b></td>
+    <td style="text-align:right;"><b>${fmtINRCr(grand.notPaidValue)}</b></td>
+    <td style="text-align:right;"><b>${fmtINRCr(grand.totalValue)}</b></td>
+  `;
+}
 function renderPurchasePage(){
   const records = RAW.purchaseRecords;
   const kpiEl = document.getElementById('kpiGridPurchase');
   if(!records.length){
     if(kpiEl) kpiEl.innerHTML = '';
     destroyChart('purchaseByProject'); destroyChart('purchaseStatus'); destroyChart('purchaseOverdueSplit'); destroyChart('purchaseTopVendors');
+    purchaseFYSummaryData = [];
+    const fyTheadEl = document.getElementById('purchaseFYTheadRow');
+    if(fyTheadEl) fyTheadEl.innerHTML = '';
+    const fyTbodyEl = document.getElementById('purchaseFYTbody');
+    if(fyTbodyEl) fyTbodyEl.innerHTML = '';
+    const fyTfootEl = document.getElementById('purchaseFYTfootRow');
+    if(fyTfootEl) fyTfootEl.innerHTML = '';
     return;
   }
   const today = new Date();
@@ -1049,6 +1162,7 @@ function renderPurchasePage(){
     plugins:[ChartDataLabels]
   });
   }
+  renderPurchaseFYSummary(records);
   renderGenericTable({
     theadId:'purchaseTheadRow', tbodyId:'purchaseTbody', tfootId:'purchaseTfootRow', searchId:'purchaseSearchBox',
     searchFields:['vendor','project','invoiceNo','poNo','certNo'],
@@ -1129,6 +1243,18 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
   }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(purchaseExport), 'Purchase Payments');
   XLSX.writeFile(wb, 'MP_Developers_Purchase_' + new Date().toISOString().slice(0,10) + '.xlsx');
+});
+document.getElementById('exportFYBtn').addEventListener('click', ()=>{
+  const wb = XLSX.utils.book_new();
+  const fyExport = purchaseFYSummaryData.map(g=>({
+    'Financial Year': g.label, 'Certificates': g.certificates,
+    'Paid (Count)': g.paidCount, 'Paid (₹)': g.paidValue,
+    'Processed (Count)': g.processedCount, 'Processed (₹)': g.processedValue,
+    'Not Paid (Count)': g.notPaidCount, 'Not Paid (₹)': g.notPaidValue,
+    'Total Value (₹)': g.totalValue,
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(fyExport), 'FY-wise Payment Summary');
+  XLSX.writeFile(wb, 'MP_Developers_Purchase_FY_Summary_' + new Date().toISOString().slice(0,10) + '.xlsx');
 });
 </script>
 </body>
