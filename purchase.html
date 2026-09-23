@@ -440,11 +440,34 @@
   <div id="dashboard" style="display:none;">
     <div class="section-title group"><h2>Purchase</h2><div class="line"></div></div>
     <p class="chart-note" style="margin:4px 2px 18px;">Built from the PUR All Purchase Payments Report — every purchase certificate/bill, project, vendor, PO, invoice and payment status. Total Purchase Value, Vendor Outstanding and Overdue Outstanding are covered here; Current Stock Value, Open PO Value, Pending PR Value, Stock Issued Value and Slow Moving Stock still need their own ERP reports (Stock Valuation, PO Register, PR Register, Material Issue/GRN) which haven't been uploaded yet.</p>
+    <div class="filter-bar">
+      <div class="filter-field">
+        <label for="filterProject">Project</label>
+        <select id="filterProject"><option value="">All Projects</option></select>
+      </div>
+      <div class="filter-field">
+        <label id="filterFYLabel">Financial Year</label>
+        <div class="multiselect" id="filterFYWrap">
+          <button type="button" class="multiselect-btn" id="filterFYBtn" aria-labelledby="filterFYLabel">All Financial Years</button>
+          <div class="multiselect-panel" id="filterFYPanel"></div>
+        </div>
+      </div>
+      <div class="filter-field">
+        <label id="filterMonthLabel">Month</label>
+        <div class="multiselect" id="filterMonthWrap">
+          <button type="button" class="multiselect-btn" id="filterMonthBtn" aria-labelledby="filterMonthLabel">All Months</button>
+          <div class="multiselect-panel" id="filterMonthPanel"></div>
+        </div>
+      </div>
+      <button class="btn btn-ghost" id="filterClear">Clear filters</button>
+      <span class="filter-busy" id="filterBusy" style="display:none;"><span class="spin"></span>Updating...</span>
+    </div>
+    <div class="filter-summary" id="filterSummary" style="display:none;"></div>
     <div class="kpi-grid" id="kpiGridPurchase"></div>
     <div class="section-title"><h2>Purchase by Project &amp; Status</h2><div class="line"></div></div>
     <div class="chart-grid">
       <div class="chart-card"><h3>Purchase value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartPurchaseByProject"></canvas></div></div>
-      <div class="chart-card"><h3>Certificates by payment status (as given)</h3><div class="wrap tall"><canvas id="chartPurchaseStatus"></canvas></div></div>
+      <div class="chart-card"><h3>Certificates by payment status (₹ Cr)</h3><div class="wrap tall"><canvas id="chartPurchaseStatus"></canvas></div></div>
     </div>
     <div class="section-title"><h2>Outstanding</h2><div class="line"></div></div>
     <div class="chart-grid">
@@ -631,6 +654,7 @@ async function tryLoadPublishedData(){
     }
     RAW = newRAW;
     filterState = { project:'', fy:[], month:[] };
+    populateFilterOptions();
     renderPurchasePage();
     lastPublished = { at: meta.generatedAt, files: meta.sourceFiles || [] };
     updateLastUpdatedBadge();
@@ -761,6 +785,12 @@ const sortStates = {};
 // FY-wise Payment Summary — cached here so the "Download Excel" button on that table can export
 // exactly the rows currently on screen without recomputing them.
 let purchaseFYSummaryData = [];
+// Project / Financial Year / Month filter bar — same shape and behaviour as the main dashboard's
+// (index.html), ported so Purchase filters the same way. fyOptionsList/monthOptionsList are rebuilt
+// by populateFilterOptions()/populateMonthOptions() below.
+let filterState = { project:'', fy:[], month:[] };
+let fyOptionsList = [];
+let monthOptionsList = [];
 function readFileAsWB(file){
   return new Promise((resolve,reject)=>{
     const reader = new FileReader();
@@ -801,6 +831,126 @@ function financialYearOf(dateVal){
   const y = d.getFullYear(), m = d.getMonth()+1; // 1-12
   if(m >= 4) return { label: 'FY' + y + '-' + String(y+1).slice(-2), sortKey: y };
   return { label: 'FY' + (y-1) + '-' + String(y).slice(-2), sortKey: y-1 };
+}
+// Ported byte-identical from index.html.
+function monthKeyOf(dateVal){
+  let d;
+  if(dateVal instanceof Date) d = dateVal;
+  else if(typeof dateVal === 'number' && isFinite(dateVal)) d = excelSerialToDate(dateVal);
+  else if(typeof dateVal === 'string' && dateVal.trim()){ d = new Date(dateVal); }
+  else return null;
+  if(isNaN(d.getTime())) return null;
+  const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+  const label = d.toLocaleString('en-IN', {month:'short', year:'numeric'});
+  return { key, label, fy: financialYearOf(d) };
+}
+/* ============ FILTERING (Project / Financial Year / Month — same design as the main dashboard) ============ */
+// Purchase certificates are filtered by Creation Date only (the single date basis used for the
+// FY-wise summary too), unlike the main dashboard which has several date fields per report.
+function matchesProject(rec, project){ return !project || rec.project === project; }
+function periodFilterActive(){ return filterState.fy.length>0 || filterState.month.length>0; }
+function matchesDate(rec, dateField, fy, month){
+  const hasFY = fy && fy.length, hasMonth = month && month.length;
+  if(!hasFY && !hasMonth) return true;
+  const dateVal = rec[dateField];
+  if(!dateVal) return false;
+  if(hasMonth){ const mk = monthKeyOf(dateVal); return !!mk && month.includes(mk.key); }
+  const fyInfo = financialYearOf(dateVal);
+  return !!fyInfo && fy.includes(fyInfo.label);
+}
+function filterFull(records, dateField){
+  return records.filter(r => matchesProject(r, filterState.project) && matchesDate(r, dateField, filterState.fy, filterState.month));
+}
+function filterProjectOnly(records){
+  return records.filter(r => matchesProject(r, filterState.project));
+}
+// ---- Generic multi-select dropdown (Financial Year / Month filters) — ported byte-identical. ----
+function renderMultiSelectOptions(panelId, options, selected){
+  const panel = document.getElementById(panelId);
+  panel.innerHTML = options.length
+    ? options.map(o=>`<label class="ms-option"><input type="checkbox" value="${o.value}" ${selected.includes(o.value)?'checked':''}><span>${o.label}</span></label>`).join('')
+    : '<div class="ms-empty">No options available</div>';
+}
+function updateMultiSelectButtonLabel(btnId, options, selected, allLabel){
+  const btn = document.getElementById(btnId);
+  if(!selected.length) btn.textContent = allLabel;
+  else if(selected.length === 1){
+    const opt = options.find(o=>o.value===selected[0]);
+    btn.textContent = opt ? opt.label : selected[0];
+  } else btn.textContent = `${selected.length} selected`;
+}
+function wireMultiSelectToggle(wrapId){
+  const wrap = document.getElementById(wrapId);
+  const btn = wrap.querySelector('.multiselect-btn');
+  if(btn.dataset.wired) return;
+  btn.dataset.wired = '1';
+  btn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const isOpen = wrap.classList.contains('open');
+    document.querySelectorAll('.multiselect.open').forEach(w=>w.classList.remove('open'));
+    if(!isOpen) wrap.classList.add('open');
+  });
+  wrap.querySelector('.multiselect-panel').addEventListener('click', e=> e.stopPropagation());
+}
+function populateFilterOptions(){
+  const projects = new Set();
+  RAW.purchaseRecords.forEach(r=> r.project && projects.add(r.project));
+  const fySet = new Map(); // label -> sortKey
+  RAW.purchaseRecords.forEach(r=>{ const fy = financialYearOf(r.creationDate); if(fy) fySet.set(fy.label, fy.sortKey); });
+  const projSel = document.getElementById('filterProject');
+  const sortedProjects = [...projects].sort();
+  projSel.innerHTML = '<option value="">All Projects</option>' + sortedProjects.map(p=>`<option value="${p}">${p}</option>`).join('');
+  const sortedFY = [...fySet.entries()].sort((a,b)=>a[1]-b[1]).map(e=>e[0]);
+  fyOptionsList = sortedFY.map(f=>({value:f, label:f}));
+  filterState.fy = filterState.fy.filter(v=>sortedFY.includes(v)); // drop selections that no longer exist in the data
+  wireMultiSelectToggle('filterFYWrap');
+  renderMultiSelectOptions('filterFYPanel', fyOptionsList, filterState.fy);
+  updateMultiSelectButtonLabel('filterFYBtn', fyOptionsList, filterState.fy, 'All Financial Years');
+  populateMonthOptions();
+}
+function populateMonthOptions(){
+  const monthMap = new Map(); // key -> label
+  RAW.purchaseRecords.forEach(r=>{
+    const mk = monthKeyOf(r.creationDate);
+    if(!mk) return;
+    if(filterState.fy.length && (!mk.fy || !filterState.fy.includes(mk.fy.label))) return; // scope months to the chosen FY set
+    if(!monthMap.has(mk.key)) monthMap.set(mk.key, mk.label);
+  });
+  const sorted = [...monthMap.entries()].sort((a,b)=> a[0].localeCompare(b[0]));
+  monthOptionsList = sorted.map(([key,label])=>({value:key, label}));
+  filterState.month = filterState.month.filter(v=>monthOptionsList.some(o=>o.value===v));
+  wireMultiSelectToggle('filterMonthWrap');
+  renderMultiSelectOptions('filterMonthPanel', monthOptionsList, filterState.month);
+  updateMultiSelectButtonLabel('filterMonthBtn', monthOptionsList, filterState.month, 'All Months');
+}
+function renderFilterSummary(){
+  const chips = [];
+  if(filterState.project) chips.push(filterState.project);
+  if(filterState.month.length){
+    filterState.month.forEach(v=>{
+      const opt = monthOptionsList.find(o=>o.value===v);
+      chips.push(opt ? opt.label : v);
+    });
+  } else if(filterState.fy.length){
+    filterState.fy.forEach(v=>chips.push(v));
+  }
+  const el = document.getElementById('filterSummary');
+  if(!el) return;
+  if(!chips.length){ el.style.display='none'; el.innerHTML=''; return; }
+  el.style.display='flex';
+  el.innerHTML = chips.map(c=>`<span class="filter-chip">${c}</span>`).join('') +
+    `<span class="filter-note">Applies to certificates by Creation Date. The FY-wise Payment Summary table below stays at full history for the selected project, so every year is still visible side by side.</span>`;
+}
+// Same debounced-render pattern as the main dashboard — do the cheap state update and show
+// "Updating..." synchronously, then yield two animation frames before the heavier recompute so the
+// checkbox tick/button label actually paints before the main thread gets busy.
+function showFilterBusy(){ const el = document.getElementById('filterBusy'); if(el) el.style.display = 'inline-flex'; }
+function hideFilterBusy(){ const el = document.getElementById('filterBusy'); if(el) el.style.display = 'none'; }
+function deferHeavyRender(fn){
+  showFilterBusy();
+  requestAnimationFrame(()=> requestAnimationFrame(()=>{
+    try{ fn(); } finally { hideFilterBusy(); }
+  }));
 }
 function parseDateAny(v){
   if(v === null || v === undefined || v === '') return null;
@@ -974,11 +1124,14 @@ function parsePurchaseRecords(wb){
   return records;
 }
 // FY-wise Payment Summary — grouped by each certificate's Creation Date (Apr-Mar financial year,
-// same convention as the main dashboard). Uses the ERP's own Status field: "Paid" and "Processed"
-// are their own buckets (those are the ERP's literal status values); everything else (Approved,
-// Submitted, Partially Paid, or any unrecognised status) is rolled into "Not Paid" since none of
-// those represent a completed payment yet. Cached on purchaseFYSummaryData so the "Download Excel"
-// button below the table can export exactly the rows on screen.
+// same convention as the main dashboard). Called with a Project-only filtered set (not Project+FY+
+// Month) — same convention the main dashboard uses for its own by-FY trend views (bookingFYData,
+// collectionFYData, etc.) — so every FY is always visible side by side here even while the FY/Month
+// picker above narrows the KPIs/charts/table to one period. Uses the ERP's own Status field: "Paid"
+// and "Processed" are their own buckets (those are the ERP's literal status values); everything else
+// (Approved, Submitted, Partially Paid, or any unrecognised status) is rolled into "Not Paid" since
+// none of those represent a completed payment yet. Cached on purchaseFYSummaryData so the "Download
+// Excel" button below the table can export exactly the rows on screen.
 function renderPurchaseFYSummary(records){
   const theadEl = document.getElementById('purchaseFYTheadRow');
   const tbodyEl = document.getElementById('purchaseFYTbody');
@@ -1040,9 +1193,10 @@ function renderPurchaseFYSummary(records){
   `;
 }
 function renderPurchasePage(){
-  const records = RAW.purchaseRecords;
+  renderFilterSummary();
+  const allRecords = RAW.purchaseRecords;
   const kpiEl = document.getElementById('kpiGridPurchase');
-  if(!records.length){
+  if(!allRecords.length){
     if(kpiEl) kpiEl.innerHTML = '';
     destroyChart('purchaseByProject'); destroyChart('purchaseStatus'); destroyChart('purchaseOverdueSplit'); destroyChart('purchaseTopVendors');
     purchaseFYSummaryData = [];
@@ -1054,6 +1208,11 @@ function renderPurchasePage(){
     if(fyTfootEl) fyTfootEl.innerHTML = '';
     return;
   }
+  // KPIs, charts and the certificate table respect Project + FY + Month (by Creation Date). The
+  // FY-wise Payment Summary table below is a trend-by-FY view, same convention as the main
+  // dashboard's own by-FY trend charts — Project-only, so selecting one FY here doesn't collapse it
+  // down to a single row; see renderPurchaseFYSummary() below.
+  const records = filterFull(allRecords, 'creationDate');
   const today = new Date();
   const isOverdue = r => r.outstandingAmt > 0 && (()=>{ const d = parseDateAny(r.dueDate); return d && d < today; })();
   const totalPurchaseValue = records.reduce((a,r)=>a+r.totalCost,0);
@@ -1096,7 +1255,7 @@ function renderPurchasePage(){
   });
   }
   const statusMap = {};
-  records.forEach(r=>{ statusMap[r.status] = (statusMap[r.status]||0) + 1; });
+  records.forEach(r=>{ statusMap[r.status] = (statusMap[r.status]||0) + r.totalCost; });
   const byStatus = Object.entries(statusMap).sort((a,b)=>b[1]-a[1]);
   const statusColors = [teal, gold, brick, navy, '#8B2E2E', '#6C7A89'];
   destroyChart('purchaseStatus');
@@ -1106,12 +1265,13 @@ function renderPurchasePage(){
   chartClearEmptyMessage('chartPurchaseStatus');
   charts.purchaseStatus = new Chart(document.getElementById('chartPurchaseStatus'), {
     type:'doughnut',
-    data:{ labels: byStatus.map(s=>s[0]), datasets:[{ data: byStatus.map(s=>s[1]), backgroundColor: byStatus.map((s,i)=>statusColors[i%statusColors.length]), borderWidth:2, borderColor:'#fff' }] },
+    data:{ labels: byStatus.map(s=>s[0]), datasets:[{ data: byStatus.map(s=>s[1]/1e7), backgroundColor: byStatus.map((s,i)=>statusColors[i%statusColors.length]), borderWidth:2, borderColor:'#fff' }] },
     options:{
       responsive:true, maintainAspectRatio:false,
       plugins:{
         legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}},
-        datalabels:{ color:'#fff', font:{weight:'700',size:11}, formatter:(v)=> v>0 ? v.toLocaleString('en-IN') : '' }
+        tooltip:{callbacks:{label: ctx=> ctx.label+': ₹'+ctx.raw.toFixed(2)+' Cr'}},
+        datalabels:{ color:'#fff', font:{weight:'700',size:11}, formatter:(v)=> v>0.005 ? '₹'+v.toFixed(2)+'Cr' : '' }
       }
     },
     plugins:[ChartDataLabels]
@@ -1162,7 +1322,7 @@ function renderPurchasePage(){
     plugins:[ChartDataLabels]
   });
   }
-  renderPurchaseFYSummary(records);
+  renderPurchaseFYSummary(filterProjectOnly(allRecords));
   renderGenericTable({
     theadId:'purchaseTheadRow', tbodyId:'purchaseTbody', tfootId:'purchaseTfootRow', searchId:'purchaseSearchBox',
     searchFields:['vendor','project','invoiceNo','poNo','certNo'],
@@ -1208,6 +1368,8 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
     const wb = await readFileAsWB(fileData);
     RAW.purchaseRecords = parsePurchaseRecords(wb);
     if(RAW.purchaseRecords.length === 0) throw new Error('No purchase records could be recognised in this file.');
+    filterState = { project:'', fy:[], month:[] };
+    populateFilterOptions();
     renderPurchasePage();
     const fileNames = [fileData.name];
     document.getElementById('uploadCard').style.display='none';
@@ -1232,6 +1394,38 @@ document.getElementById('changeBtn').addEventListener('click', ()=>{
   document.getElementById('publishStatus').style.display='none';
 });
 document.getElementById('printBtn').addEventListener('click', ()=> window.print());
+/* ============ FILTER BAR WIRING (same behaviour as the main dashboard) ============ */
+document.getElementById('filterProject').addEventListener('change', function(){
+  filterState.project = this.value;
+  deferHeavyRender(()=> renderPurchasePage());
+});
+document.getElementById('filterFYPanel').addEventListener('change', function(e){
+  if(e.target.type !== 'checkbox') return;
+  const val = e.target.value;
+  if(e.target.checked){ if(!filterState.fy.includes(val)) filterState.fy.push(val); }
+  else { filterState.fy = filterState.fy.filter(v=>v!==val); }
+  filterState.month = []; // Month options are scoped to the chosen FY set, so any previous picks may no longer be valid
+  updateMultiSelectButtonLabel('filterFYBtn', fyOptionsList, filterState.fy, 'All Financial Years');
+  deferHeavyRender(()=>{ populateMonthOptions(); renderPurchasePage(); });
+});
+document.getElementById('filterMonthPanel').addEventListener('change', function(e){
+  if(e.target.type !== 'checkbox') return;
+  const val = e.target.value;
+  if(e.target.checked){ if(!filterState.month.includes(val)) filterState.month.push(val); }
+  else { filterState.month = filterState.month.filter(v=>v!==val); }
+  updateMultiSelectButtonLabel('filterMonthBtn', monthOptionsList, filterState.month, 'All Months');
+  deferHeavyRender(()=> renderPurchasePage());
+});
+document.addEventListener('click', ()=>{
+  document.querySelectorAll('.multiselect.open').forEach(w=>w.classList.remove('open'));
+});
+document.getElementById('filterClear').addEventListener('click', function(){
+  filterState = { project:'', fy:[], month:[] };
+  document.getElementById('filterProject').value = '';
+  renderMultiSelectOptions('filterFYPanel', fyOptionsList, filterState.fy);
+  updateMultiSelectButtonLabel('filterFYBtn', fyOptionsList, filterState.fy, 'All Financial Years');
+  deferHeavyRender(()=>{ populateMonthOptions(); renderPurchasePage(); });
+});
 document.getElementById('exportBtn').addEventListener('click', ()=>{
   const wb = XLSX.utils.book_new();
   const purchaseExport = RAW.purchaseRecords.map(r=>({
