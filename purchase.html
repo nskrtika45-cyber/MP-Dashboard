@@ -469,6 +469,11 @@
       <div class="chart-card"><h3>Purchase value by project (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartPurchaseByProject"></canvas></div></div>
       <div class="chart-card"><h3>Certificates by payment status (₹ Cr)</h3><div class="wrap tall"><canvas id="chartPurchaseStatus"></canvas></div></div>
     </div>
+    <div class="section-title"><h2>Materials Used</h2><div class="line"></div></div>
+    <p class="chart-note" style="margin:4px 2px 18px;">From the Material/Asset Type column, which can carry more than one tag per certificate (e.g. "Civil, Electrical Roof, Plumbing") — a certificate covering several materials contributes its value to each one, so bars don't add up to Total Purchase Value. Near-duplicate tag spellings (a typo, or a shortened form of a longer tag, like "Safety" for "Safety &amp; Equipments") are folded into a single material.</p>
+    <div class="chart-grid one">
+      <div class="chart-card"><h3>Materials used (top 20, ₹ Cr)</h3><div class="wrap xtall"><canvas id="chartMaterialsUsed"></canvas></div></div>
+    </div>
     <div class="section-title"><h2>Outstanding</h2><div class="line"></div></div>
     <div class="chart-grid">
       <div class="chart-card"><h3>Outstanding: overdue vs not yet due (₹ Cr)</h3><div class="wrap tall"><canvas id="chartPurchaseOverdueSplit"></canvas></div></div>
@@ -809,6 +814,8 @@ const sortStates = {};
 // FY-wise Payment Summary — cached here so the "Download Excel" button on that table can export
 // exactly the rows currently on screen without recomputing them.
 let purchaseFYSummaryData = [];
+// Materials Used chart — cached so a future export/drill-down can reuse exactly what's on screen.
+let materialsUsedData = [];
 // Project / Financial Year / Month filter bar — same shape and behaviour as the main dashboard's
 // (index.html), ported so Purchase filters the same way. fyOptionsList/monthOptionsList are rebuilt
 // by populateFilterOptions()/populateMonthOptions() below.
@@ -1093,6 +1100,111 @@ function renderGenericTableBody(opts){
   });
   document.getElementById(tfootId).innerHTML = tfootCells.join('');
 }
+/* ============ MATERIALS USED — near-duplicate tag merging ============ */
+// The Material/Asset Type column is a comma-separated multi-tag field (a single certificate can carry
+// more than one, e.g. "Civil,Electrical Roof,Plumbing"), and the ERP export has picked up near-duplicate
+// tag spellings over time — a typo ("onsumable" for "Consumables"), or a shortened form of a longer tag
+// ("Safety" for "Safety & Equipments", "Doors" for "Doors / Windows", "Assets" for "Fixed Assets",
+// "Painting" for "Paint"). MATERIAL_NAME_ALIAS folds each of those known cases into one canonical tag —
+// same convention PROJECT_NAME_OVERRIDE (main dashboard) already uses for the same class of ERP naming
+// drift. Matched case-insensitively.
+const MATERIAL_NAME_ALIAS = {
+  'onsumable': 'Consumables',
+  'consumable': 'Consumables',
+  'painting': 'Paint',
+  'safety': 'Safety & Equipments',
+  'assets': 'Fixed Assets',
+  'doors': 'Doors / Windows',
+};
+function levenshteinDistance(a, b){
+  const m = a.length, n = b.length;
+  if(m === 0) return n;
+  if(n === 0) return m;
+  let prev = new Array(n+1), curr = new Array(n+1);
+  for(let j=0;j<=n;j++) prev[j] = j;
+  for(let i=1;i<=m;i++){
+    curr[0] = i;
+    for(let j=1;j<=n;j++){
+      curr[j] = a[i-1]===b[j-1] ? prev[j-1] : 1 + Math.min(prev[j-1], prev[j], curr[j-1]);
+    }
+    const tmp = prev; prev = curr; curr = tmp;
+  }
+  return prev[n];
+}
+function materialTagDigits(s){ return (s.match(/\d+/g) || []).join(','); }
+function materialTagWords(s){ return s.split(' ').filter(Boolean); }
+// A forward-looking safety net for FUTURE typos not yet in MATERIAL_NAME_ALIAS above — but deliberately
+// narrow, so it doesn't merge tags that only LOOK similar by coincidence. It requires the two tags to
+// have the exact same number of words, with only ONE word differing, and that one differing word must
+// be a near-identical (typo-level) spelling of the other. This is why "P Sand" and "M Sand" do NOT
+// merge (the differing word is a 1-character sand-grade code, not a spelling variant — the length
+// guard below excludes anything shorter than 4 characters) while a hypothetical "Cemant"/"Cement" would.
+// The digit-content check separately blocks any merge across tags with different numbers, so rebar
+// sizes like "Steel - 12mm" and "Steel - 8mm" always stay distinct materials.
+function isFuzzyMaterialMatch(a, b){
+  if(a === b) return true;
+  if(materialTagDigits(a) !== materialTagDigits(b)) return false;
+  const wordsA = materialTagWords(a), wordsB = materialTagWords(b);
+  if(wordsA.length !== wordsB.length) return false;
+  let diffCount = 0, diffIdx = -1;
+  for(let i=0;i<wordsA.length;i++){ if(wordsA[i] !== wordsB[i]){ diffCount++; diffIdx = i; } }
+  if(diffCount !== 1) return false;
+  const wa = wordsA[diffIdx], wb = wordsB[diffIdx];
+  if(Math.min(wa.length, wb.length) < 4) return false; // never fuzzy-merge short codes/initials
+  const maxLen = Math.max(wa.length, wb.length);
+  return (1 - levenshteinDistance(wa, wb) / maxLen) >= 0.7;
+}
+function materialNormKey(t){ return t.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
+// Builds a { rawTag -> canonicalDisplayLabel } map for the distinct tags actually present in the
+// current filtered data: explicit aliases first, then a union-find pass clustering any remaining
+// tags that pass isFuzzyMaterialMatch. Each cluster displays under its longest (most descriptive)
+// member's original spelling/casing.
+function buildMaterialCanonicalMap(rawTags){
+  const canonical = {};
+  rawTags.forEach(tag=>{
+    const aliasKey = tag.toLowerCase();
+    if(MATERIAL_NAME_ALIAS[aliasKey]) canonical[tag] = MATERIAL_NAME_ALIAS[aliasKey];
+  });
+  const unaliased = rawTags.filter(t => !canonical[t]);
+  const parent = {};
+  unaliased.forEach(t=> parent[t]=t);
+  const find = x => { while(parent[x]!==x){ x = parent[x]; } return x; };
+  const union = (a,b) => { const ra=find(a), rb=find(b); if(ra!==rb) parent[rb]=ra; };
+  for(let i=0;i<unaliased.length;i++){
+    for(let j=i+1;j<unaliased.length;j++){
+      if(isFuzzyMaterialMatch(materialNormKey(unaliased[i]), materialNormKey(unaliased[j]))) union(unaliased[i], unaliased[j]);
+    }
+  }
+  const clusterMembers = {};
+  unaliased.forEach(t=>{ const r=find(t); (clusterMembers[r] = clusterMembers[r]||[]).push(t); });
+  Object.values(clusterMembers).forEach(members=>{
+    const label = members.slice().sort((a,b)=>b.length-a.length)[0];
+    members.forEach(m=> canonical[m] = label);
+  });
+  return canonical;
+}
+// Splits each record's Material/Asset Type tag list, folds near-duplicates via the canonical map
+// above, and sums certificates/value per resulting material — a certificate covering several
+// materials contributes its value to each one, so the returned values don't add up to Total Purchase
+// Value (by design; see the chart note next to the chart this feeds).
+function buildMaterialsUsedData(records){
+  const rowTags = records.map(r=>{
+    const tags = (r.materialType||'').toString().split(',').map(t=>t.trim()).filter(Boolean);
+    return { tags: [...new Set(tags)], totalCost: r.totalCost };
+  });
+  const distinctRaw = [...new Set(rowTags.flatMap(rt=>rt.tags))];
+  const canonicalMap = buildMaterialCanonicalMap(distinctRaw);
+  const agg = {};
+  rowTags.forEach(rt=>{
+    const canonicalTags = new Set(rt.tags.map(t=>canonicalMap[t] || t));
+    canonicalTags.forEach(tag=>{
+      if(!agg[tag]) agg[tag] = { tag, certificates:0, value:0 };
+      agg[tag].certificates += 1;
+      agg[tag].value += rt.totalCost;
+    });
+  });
+  return Object.values(agg).sort((a,b)=>b.value-a.value);
+}
 function parsePurchaseRecords(wb){
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = sheetToRows(ws);
@@ -1226,8 +1338,9 @@ function renderPurchasePage(){
   const kpiEl = document.getElementById('kpiGridPurchase');
   if(!allRecords.length){
     if(kpiEl) kpiEl.innerHTML = '';
-    destroyChart('purchaseByProject'); destroyChart('purchaseStatus'); destroyChart('purchaseOverdueSplit'); destroyChart('purchaseTopVendors');
+    destroyChart('purchaseByProject'); destroyChart('purchaseStatus'); destroyChart('purchaseOverdueSplit'); destroyChart('purchaseTopVendors'); destroyChart('materialsUsed');
     purchaseFYSummaryData = [];
+    materialsUsedData = [];
     kpiDrillData = {};
     const fyTheadEl = document.getElementById('purchaseFYTheadRow');
     if(fyTheadEl) fyTheadEl.innerHTML = '';
@@ -1369,6 +1482,28 @@ function renderPurchasePage(){
       plugins:{
         legend:{display:false}, tooltip:{callbacks:{label: ctx=> '₹'+ctx.raw.toFixed(2)+' Cr'}},
         datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:11}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
+      }
+    },
+    plugins:[ChartDataLabels]
+  });
+  }
+  materialsUsedData = buildMaterialsUsedData(records);
+  const topMaterials = materialsUsedData.slice(0, 20);
+  destroyChart('materialsUsed');
+  if(topMaterials.length === 0){
+    chartEmptyMessage('chartMaterialsUsed', 'No material data to show.');
+  } else {
+  chartClearEmptyMessage('chartMaterialsUsed');
+  charts.materialsUsed = new Chart(document.getElementById('chartMaterialsUsed'), {
+    type:'bar',
+    data:{ labels: topMaterials.map(m=>m.tag), datasets:[{ label:'Value', data: topMaterials.map(m=>m.value/1e7), backgroundColor: teal }] },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      scales:{ x:{ title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} }, y:{ grid:{display:false}, ticks:{font:{size:10.5}} } },
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label: ctx=>{ const m = topMaterials[ctx.dataIndex]; return '₹'+ctx.raw.toFixed(2)+' Cr &middot; '+fmtNum(m.certificates)+' certificates'; }}},
+        datalabels:{ color: navy, anchor:'end', align:'right', font:{weight:'600',size:10.5}, formatter:(v)=> '₹'+v.toFixed(2)+' Cr' }
       }
     },
     plugins:[ChartDataLabels]
