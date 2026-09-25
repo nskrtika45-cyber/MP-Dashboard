@@ -1389,6 +1389,13 @@ let collectionFYData = [];
 let outstandingData = [];
 let genuineCancelledUnits = 0, genuineCancelledValue = 0, genuineCancelledArea = 0;
 let hasTotalFlatCost = false;
+// Allotment / Possession / Deed Handover milestone tiles — each sourced from the Customer Detail
+// Report's own Allotment Date / Posession Date / Deed Handed Over Date columns (optional; absent on
+// older exports, hence the has* flags gating whether each tile renders at all).
+let hasAllotmentDate = false, hasPossessionDate = false, hasDeedHandoverDate = false;
+let allotmentGivenCount = 0, allotmentGivenValue = 0;
+let possessionGivenCount = 0, possessionGivenValue = 0;
+let deedHandoverCount = 0, deedHandoverValue = 0;
 // "Net" = active bookings only (Status !== 'Cancelled' on the Customer Detail Report's own row, same
 // field aggregateDiscount() already splits active/cancelled on). "Gross" additionally includes the
 // cancelled-status rows — mirrors the existing Sales Value/Sold Units/Sold Area "Booking Value" toggle
@@ -1548,6 +1555,14 @@ function parseCustomerDetails(wb){
   const headerRow = rows[headerIdx] || [];
   const col = {};
   headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
+  // Case-insensitive fallback lookup — the ERP has been observed exporting the same column under
+  // different casing across report versions (e.g. 'TOTAL FLAT COST' vs 'Total Flat Cost'), and
+  // normalizeHeader() deliberately doesn't touch case (other lookups here rely on exact case for
+  // columns that never vary). colCI() tries the exact text first, then an uppercase-keyed match, so
+  // a future re-casing of any of these optional columns doesn't silently break its tile.
+  const colUpper = {};
+  Object.keys(col).forEach(k=>{ const u=k.toUpperCase(); if(colUpper[u]===undefined) colUpper[u]=col[k]; });
+  const colCI = (name) => col[name] !== undefined ? col[name] : colUpper[name.toUpperCase()];
   const unitNoIdx = col['Unit No'] !== undefined ? col['Unit No'] : 2;
   const areaIdx = col['Saleable Area'] !== undefined ? col['Saleable Area'] : 3;
   const beforeIdx = col['Base Rate (Before Discount)'] !== undefined ? col['Base Rate (Before Discount)'] : 7;
@@ -1557,9 +1572,15 @@ function parseCustomerDetails(wb){
   // single figure per row rather than something this dashboard has to derive from Base Rate x Area.
   // Undefined on older exports that predate this column — totalFlatCost is left null in that case so
   // the "Total Booking Value including Govt Charges" tile can tell "not on this report" apart from "zero".
-  const totalFlatCostIdx = col['TOTAL FLAT COST'];
+  const totalFlatCostIdx = colCI('TOTAL FLAT COST');
   const bookingDateIdx = col['Booking Date'] !== undefined ? col['Booking Date'] : 9;
   const statusIdx = col['Status'] !== undefined ? col['Status'] : 31;
+  // Allotment / Possession / Deed Handover dates — also optional/newer columns. 'Posession Date' is
+  // the ERP's own spelling (missing a second 's'), matched as-is rather than "corrected" so the lookup
+  // actually hits the real export.
+  const allotmentDateIdx = colCI('Allotment Date');
+  const possessionDateIdx = colCI('Posession Date');
+  const deedHandoverDateIdx = colCI('Deed Handed Over Date');
   const records = [];
   let currentProject = null, currentSubProject = null;
   for(let i=headerIdx+1; i<rows.length; i++){
@@ -1581,7 +1602,10 @@ function parseCustomerDetails(wb){
     if(typeof before !== 'number' || typeof after !== 'number') continue;
     const project = resolveProjectForSubProject(currentProject || 'Unknown', currentSubProject);
     const totalFlatCost = (totalFlatCostIdx !== undefined && typeof r[totalFlatCostIdx] === 'number') ? r[totalFlatCostIdx] : null;
-    records.push({ project, unitNo, area, before, after, bookingDate, status, totalFlatCost });
+    const allotmentDate = (allotmentDateIdx !== undefined && r[allotmentDateIdx] !== null && r[allotmentDateIdx] !== '') ? r[allotmentDateIdx] : '';
+    const possessionDate = (possessionDateIdx !== undefined && r[possessionDateIdx] !== null && r[possessionDateIdx] !== '') ? r[possessionDateIdx] : '';
+    const deedHandoverDate = (deedHandoverDateIdx !== undefined && r[deedHandoverDateIdx] !== null && r[deedHandoverDateIdx] !== '') ? r[deedHandoverDateIdx] : '';
+    records.push({ project, unitNo, area, before, after, bookingDate, status, totalFlatCost, allotmentDate, possessionDate, deedHandoverDate });
   }
   return records;
 }
@@ -2393,6 +2417,27 @@ function applyFiltersAndRender(){
   totalFlatCostCancelledUnits = totalFlatCostCancelledRows.length;
   kpiDrillData.totalFlatCostNet = totalFlatCostNetRows;
   kpiDrillData.totalFlatCostGross = totalFlatCostRows;
+  // Total Allotment Given / Total Possession Given / Total Deed Handover — each counted by its OWN
+  // date column on the Customer Detail Report (Allotment Date / Posession Date / Deed Handed Over
+  // Date), same "own date, not booking date" convention as Total Agreement Signed/Registered, since a
+  // unit booked in one period can be allotted/possessed/handed-over in a later one. Each is gated by
+  // its own has*Date flag so the tile simply doesn't render on an older export that predates that column.
+  hasAllotmentDate = RAW.customerRecords.some(r => r.allotmentDate !== '');
+  hasPossessionDate = RAW.customerRecords.some(r => r.possessionDate !== '');
+  hasDeedHandoverDate = RAW.customerRecords.some(r => r.deedHandoverDate !== '');
+  const unitValueOf = r => r.totalFlatCost !== null ? r.totalFlatCost : r.after * r.area;
+  const allotmentGivenRows = filterFull(RAW.customerRecords, 'allotmentDate').filter(r=>r.allotmentDate !== '');
+  const possessionGivenRows = filterFull(RAW.customerRecords, 'possessionDate').filter(r=>r.possessionDate !== '');
+  const deedHandoverRows = filterFull(RAW.customerRecords, 'deedHandoverDate').filter(r=>r.deedHandoverDate !== '');
+  allotmentGivenCount = allotmentGivenRows.length;
+  allotmentGivenValue = allotmentGivenRows.reduce((a,r)=>a+unitValueOf(r), 0);
+  possessionGivenCount = possessionGivenRows.length;
+  possessionGivenValue = possessionGivenRows.reduce((a,r)=>a+unitValueOf(r), 0);
+  deedHandoverCount = deedHandoverRows.length;
+  deedHandoverValue = deedHandoverRows.reduce((a,r)=>a+unitValueOf(r), 0);
+  kpiDrillData.allotmentGiven = allotmentGivenRows;
+  kpiDrillData.possessionGiven = possessionGivenRows;
+  kpiDrillData.deedHandover = deedHandoverRows;
   masterData = buildMasterTable(discount, stock, value);
   // ---- Agreement Register — fully filterable, no separate trend chart to protect ----
   agreementData = filterFull(RAW.agreementRecords, 'bookingDate');
@@ -3015,12 +3060,23 @@ function renderAgreementPage(){
     {lbl:'Yet to Sign', key:'yetToSign', val: fmtNum(backlogYetToSign.length), sub: `${fmtINRCr(backlogYetToSignValue)} booking value &middot; current backlog, all-time`},
     {lbl:'Yet to be Registered', key:'yetToRegister', val: fmtNum(backlogYetToRegister.length), sub: `${fmtINRCr(backlogYetToRegisterValue)} booking value &middot; current backlog, all-time`},
   ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+  // Allotment / Possession / Deed Handover milestone tiles — period-scoped by each column's own date,
+  // same convention as Total Agreement Signed/Registered below. Each tile is only included when the
+  // Customer Detail Report actually has that column (older exports predate these three).
+  const milestoneLabel = periodFilterActive() ? 'Allotment / possession / deed handover in the selected period' : 'Allotment / possession / deed handover (no period selected — all-time)';
+  const milestoneCardDefs = [
+    hasAllotmentDate ? {lbl:'Total Allotment Given', key:'allotmentGiven', val: fmtNum(allotmentGivenCount), sub: `${fmtINRCr(allotmentGivenValue)} booking value &middot; by Allotment Date`} : null,
+    hasPossessionDate ? {lbl:'Total Possession Given', key:'possessionGiven', val: fmtNum(possessionGivenCount), sub: `${fmtINRCr(possessionGivenValue)} booking value &middot; by Posession Date`} : null,
+    hasDeedHandoverDate ? {lbl:'Total Deed Handover', key:'deedHandover', val: fmtNum(deedHandoverCount), sub: `${fmtINRCr(deedHandoverValue)} booking value &middot; by Deed Handed Over Date`} : null,
+  ].filter(Boolean);
+  const milestoneCards = milestoneCardDefs.map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const periodLabel = periodFilterActive() ? 'Signed / registered in the selected period' : 'Signed / registered (no period selected — all-time)';
   const periodCards = [
     {lbl:'Total Agreement Signed', key:'agreementSigned', val: fmtNum(agreementSignedCount), sub: `${fmtINRCr(agreementSignedValue)} booking value &middot; by Agreement Date`},
     {lbl:'Total Unit Registered', key:'agreementRegistered', val: fmtNum(agreementRegisteredCount), sub: `${fmtINRCr(agreementRegisteredValue)} booking value &middot; by Regn Date`},
   ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   document.getElementById('kpiGridAgreement').innerHTML = backlogCards +
+    (milestoneCardDefs.length ? `<div class="kpi-group-label">${milestoneLabel}</div>` + milestoneCards : '') +
     `<div class="kpi-group-label">${periodLabel}</div>` + periodCards;
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
@@ -3871,6 +3927,30 @@ const KPI_DRILL_COLUMNS = {
     {key:'totalFlatCost', label:'Total Flat Cost (Incl. Govt Charges)', fmt:fmtINRCr},
     {key:'status', label:'Status', align:'left'},
   ],
+  allotmentGiven: [ // Total Allotment Given tile
+    {key:'project', label:'Project', align:'left'},
+    {key:'unitNo', label:'Unit No', align:'left'},
+    {key:'bookingDate', label:'Booking Date', align:'left'},
+    {key:'allotmentDate', label:'Allotment Date', align:'left'},
+    {key:'totalFlatCost', label:'Total Flat Cost (Incl. Govt Charges)', fmt:fmtINRCr},
+    {key:'status', label:'Status', align:'left'},
+  ],
+  possessionGiven: [ // Total Possession Given tile
+    {key:'project', label:'Project', align:'left'},
+    {key:'unitNo', label:'Unit No', align:'left'},
+    {key:'bookingDate', label:'Booking Date', align:'left'},
+    {key:'possessionDate', label:'Posession Date', align:'left'},
+    {key:'totalFlatCost', label:'Total Flat Cost (Incl. Govt Charges)', fmt:fmtINRCr},
+    {key:'status', label:'Status', align:'left'},
+  ],
+  deedHandover: [ // Total Deed Handover tile
+    {key:'project', label:'Project', align:'left'},
+    {key:'unitNo', label:'Unit No', align:'left'},
+    {key:'bookingDate', label:'Booking Date', align:'left'},
+    {key:'deedHandoverDate', label:'Deed Handed Over Date', align:'left'},
+    {key:'totalFlatCost', label:'Total Flat Cost (Incl. Govt Charges)', fmt:fmtINRCr},
+    {key:'status', label:'Status', align:'left'},
+  ],
   cancellation: [ // Total Cancellation / Total Cancellation Value tiles
     {key:'project', label:'Project', align:'left'},
     {key:'subProject', label:'Sub Project', align:'left'},
@@ -3900,6 +3980,9 @@ function getKpiDrillConfig(key){
     case 'inAbeyance': return { columns: KPI_DRILL_COLUMNS.outstanding, rows: kpiDrillData.inAbeyance || [] };
     case 'cancellations': return { columns: KPI_DRILL_COLUMNS.cancellation, rows: kpiDrillData.cancellations || [] };
     case 'totalFlatCost': return { columns: KPI_DRILL_COLUMNS.totalFlatCost, rows: kpiDrillData.totalFlatCost || [] };
+    case 'allotmentGiven': return { columns: KPI_DRILL_COLUMNS.allotmentGiven, rows: kpiDrillData.allotmentGiven || [] };
+    case 'possessionGiven': return { columns: KPI_DRILL_COLUMNS.possessionGiven, rows: kpiDrillData.possessionGiven || [] };
+    case 'deedHandover': return { columns: KPI_DRILL_COLUMNS.deedHandover, rows: kpiDrillData.deedHandover || [] };
     case 'unitTypeWise': return { columns: KPI_DRILL_COLUMNS.unitTypeWise, rows: unitTypeWiseData };
     default: return null;
   }
