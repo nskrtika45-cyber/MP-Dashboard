@@ -512,6 +512,30 @@
     </div>
   </div>
 </div>
+<!-- KPI drill-down modal — opened by clicking any clickable tile above; shows the records behind
+     that tile's number, with a Download Excel button for that same list. Ported byte-for-byte from
+     the main Sales & CRM dashboard's own drill-down modal. -->
+<div class="modal-overlay" id="kpiDrillOverlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div>
+        <h3 id="kpiDrillTitle"></h3>
+        <div class="modal-sub" id="kpiDrillSub"></div>
+      </div>
+      <button type="button" class="modal-close" id="kpiDrillClose" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <table class="modal-table">
+        <thead><tr id="kpiDrillThead"></tr></thead>
+        <tbody id="kpiDrillTbody"></tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <span class="modal-count" id="kpiDrillCount"></span>
+      <button type="button" class="btn btn-primary" id="kpiDrillDownload">Download Excel</button>
+    </div>
+  </div>
+</div>
 </main>
 </div>
 <script>
@@ -791,6 +815,10 @@ let purchaseFYSummaryData = [];
 let filterState = { project:'', fy:[], month:[] };
 let fyOptionsList = [];
 let monthOptionsList = [];
+// KPI drill-down modal — the rows behind each clickable tile's number are cached here by
+// renderPurchasePage() every time it runs, so getKpiDrillConfig() always has the current
+// Project+FY+Month-filtered set ready without recomputing it on click.
+let kpiDrillData = {};
 function readFileAsWB(file){
   return new Promise((resolve,reject)=>{
     const reader = new FileReader();
@@ -1200,6 +1228,7 @@ function renderPurchasePage(){
     if(kpiEl) kpiEl.innerHTML = '';
     destroyChart('purchaseByProject'); destroyChart('purchaseStatus'); destroyChart('purchaseOverdueSplit'); destroyChart('purchaseTopVendors');
     purchaseFYSummaryData = [];
+    kpiDrillData = {};
     const fyTheadEl = document.getElementById('purchaseFYTheadRow');
     if(fyTheadEl) fyTheadEl.innerHTML = '';
     const fyTbodyEl = document.getElementById('purchaseFYTbody');
@@ -1221,12 +1250,35 @@ function renderPurchasePage(){
   const overdueRecords = records.filter(isOverdue);
   const overdueTotal = overdueRecords.reduce((a,r)=>a+r.outstandingAmt,0);
   const vendorCount = new Set(records.map(r=>r.vendor)).size;
+  // ---- KPI drill-down data, cached for getKpiDrillConfig() ----
+  // Total Purchase Value -> every certificate matching the current Project+FY+Month filter, as-is.
+  kpiDrillData.purchaseTotal = records;
+  // Vendor Outstanding -> vendor-wise, not certificate-wise: each row is one vendor's Total Value
+  // (every certificate of theirs in the current filter, not just the overdue/outstanding ones) next
+  // to their Outstanding Amount, so it's immediately visible what share of a vendor's business with
+  // us is still unpaid, not just a flat list of unpaid certificates.
+  const vendorAggMap = {};
+  records.forEach(r=>{
+    if(!vendorAggMap[r.vendor]) vendorAggMap[r.vendor] = { vendor: r.vendor, certificates: 0, totalValue: 0, outstandingAmt: 0 };
+    vendorAggMap[r.vendor].certificates += 1;
+    vendorAggMap[r.vendor].totalValue += r.totalCost;
+    if(r.outstandingAmt > 0) vendorAggMap[r.vendor].outstandingAmt += r.outstandingAmt;
+  });
+  kpiDrillData.vendorOutstanding = Object.values(vendorAggMap)
+    .filter(v => v.outstandingAmt > 0)
+    .map(v => ({ ...v, pctOutstanding: v.totalValue ? (v.outstandingAmt / v.totalValue * 100) : 0 }))
+    .sort((a,b) => b.outstandingAmt - a.outstandingAmt);
+  // Overdue Outstanding -> the overdue certificates themselves, each with how many days past due.
+  kpiDrillData.overdueOutstanding = overdueRecords.map(r=>{
+    const d = parseDateAny(r.dueDate);
+    return { ...r, daysOverdue: d ? Math.floor((today - d) / 86400000) : null };
+  });
   if(kpiEl){
     kpiEl.innerHTML = [
-      {lbl:'Total Purchase Value', val: fmtINRCr(totalPurchaseValue), sub: `${fmtNum(records.length)} certificates &middot; ${fmtNum(vendorCount)} vendors`},
-      {lbl:'Vendor Outstanding', val: fmtINRCr(vendorOutstandingTotal), sub: `${fmtNum(outstandingRecords.length)} certificates with a balance due`},
-      {lbl:'Overdue Outstanding', val: fmtINRCr(overdueTotal), sub: `${fmtNum(overdueRecords.length)} certificates past their due date`},
-    ].map(c=>`<div class="kpi"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+      {lbl:'Total Purchase Value', key:'purchaseTotal', val: fmtINRCr(totalPurchaseValue), sub: `${fmtNum(records.length)} certificates &middot; ${fmtNum(vendorCount)} vendors`},
+      {lbl:'Vendor Outstanding', key:'vendorOutstanding', val: fmtINRCr(vendorOutstandingTotal), sub: `${fmtNum(outstandingRecords.length)} certificates with a balance due`},
+      {lbl:'Overdue Outstanding', key:'overdueOutstanding', val: fmtINRCr(overdueTotal), sub: `${fmtNum(overdueRecords.length)} certificates past their due date`},
+    ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   }
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
@@ -1449,6 +1501,95 @@ document.getElementById('exportFYBtn').addEventListener('click', ()=>{
   }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(fyExport), 'FY-wise Payment Summary');
   XLSX.writeFile(wb, 'MP_Developers_Purchase_FY_Summary_' + new Date().toISOString().slice(0,10) + '.xlsx');
+});
+/* ============ KPI TILE DRILL-DOWN (click a tile above -> records + Download Excel) ============ */
+// Column sets for each clickable tile's modal — ported to the same {key,label,align,fmt} shape the
+// main dashboard's KPI_DRILL_COLUMNS uses, so openKpiDrill()/the Download Excel button below work
+// identically to there.
+const KPI_DRILL_COLUMNS = {
+  purchaseTotal: [ // Total Purchase Value tile — every certificate in the current filter, as-is
+    {key:'vendor', label:'Vendor', align:'left'},
+    {key:'company', label:'Company', align:'left'},
+    {key:'project', label:'Project', align:'left'},
+    {key:'certNo', label:'Cert No', align:'left'},
+    {key:'creationDate', label:'Creation Date', align:'left'},
+    {key:'status', label:'Status', align:'left'},
+    {key:'totalCost', label:'Total Cost', fmt:fmtINRCr},
+  ],
+  vendorOutstanding: [ // Vendor Outstanding tile — vendor-wise Total Value vs Outstanding
+    {key:'vendor', label:'Vendor', align:'left'},
+    {key:'certificates', label:'Certificates', fmt:fmtNum},
+    {key:'totalValue', label:'Total Vendor Value', fmt:fmtINRCr},
+    {key:'outstandingAmt', label:'Outstanding Amount', fmt:fmtINRCr},
+    {key:'pctOutstanding', label:'% Outstanding', fmt:v=>v.toFixed(1)+'%'},
+  ],
+  overdueOutstanding: [ // Overdue Outstanding tile — the overdue certificates themselves
+    {key:'vendor', label:'Vendor', align:'left'},
+    {key:'company', label:'Company', align:'left'},
+    {key:'project', label:'Project', align:'left'},
+    {key:'certNo', label:'Cert No', align:'left'},
+    {key:'dueDate', label:'Due Date', align:'left'},
+    {key:'daysOverdue', label:'Days Overdue', fmt:fmtNum},
+    {key:'totalCost', label:'Total Cost', fmt:fmtINRCr},
+    {key:'outstandingAmt', label:'Outstanding Amount', fmt:fmtINRCr},
+  ],
+};
+function getKpiDrillConfig(key){
+  switch(key){
+    case 'purchaseTotal': return { columns: KPI_DRILL_COLUMNS.purchaseTotal, rows: kpiDrillData.purchaseTotal || [] };
+    case 'vendorOutstanding': return { columns: KPI_DRILL_COLUMNS.vendorOutstanding, rows: kpiDrillData.vendorOutstanding || [] };
+    case 'overdueOutstanding': return { columns: KPI_DRILL_COLUMNS.overdueOutstanding, rows: kpiDrillData.overdueOutstanding || [] };
+    default: return null;
+  }
+}
+let kpiDrillCurrent = null; // {title, columns, rows} for whatever's currently open — read by the Download Excel button
+function openKpiDrill(tileEl, key){
+  const config = getKpiDrillConfig(key);
+  if(!config) return;
+  const lblEl = tileEl.querySelector('.lbl');
+  const subEl = tileEl.querySelector('.sub');
+  const title = lblEl ? lblEl.textContent : 'Details';
+  const sub = subEl ? subEl.textContent : '';
+  kpiDrillCurrent = { title, columns: config.columns, rows: config.rows };
+  document.getElementById('kpiDrillTitle').textContent = title;
+  document.getElementById('kpiDrillSub').textContent = sub;
+  document.getElementById('kpiDrillThead').innerHTML = config.columns.map(c=>`<th style="text-align:${c.align||'right'}">${c.label}</th>`).join('');
+  document.getElementById('kpiDrillTbody').innerHTML = config.rows.length
+    ? config.rows.map(r=>'<tr>'+config.columns.map(c=>{
+        const v = r[c.key];
+        const display = c.fmt ? c.fmt(v) : (v===null||v===undefined||v===''?'—':v);
+        return `<td style="text-align:${c.align||'right'}">${display}</td>`;
+      }).join('')+'</tr>').join('')
+    : `<tr><td colspan="${config.columns.length}" class="modal-empty">No records for the current filter.</td></tr>`;
+  document.getElementById('kpiDrillCount').textContent = config.rows.length ? `${config.rows.length.toLocaleString('en-IN')} record${config.rows.length===1?'':'s'}` : '';
+  document.getElementById('kpiDrillDownload').disabled = !config.rows.length;
+  document.getElementById('kpiDrillOverlay').style.display = 'flex';
+}
+function closeKpiDrill(){
+  document.getElementById('kpiDrillOverlay').style.display = 'none';
+  kpiDrillCurrent = null;
+}
+document.getElementById('kpiGridPurchase').addEventListener('click', (e)=>{
+  const tile = e.target.closest('.kpi');
+  if(!tile || !tile.dataset.drill) return;
+  openKpiDrill(tile, tile.dataset.drill);
+});
+document.getElementById('kpiDrillClose').addEventListener('click', closeKpiDrill);
+document.getElementById('kpiDrillOverlay').addEventListener('click', (e)=>{ if(e.target.id==='kpiDrillOverlay') closeKpiDrill(); });
+document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeKpiDrill(); });
+document.getElementById('kpiDrillDownload').addEventListener('click', ()=>{
+  if(!kpiDrillCurrent || !kpiDrillCurrent.rows.length) return;
+  const { title, columns, rows } = kpiDrillCurrent;
+  const exportRows = rows.map(r=>{
+    const o = {};
+    columns.forEach(c=>{ const v = r[c.key]; o[c.label] = (v === undefined || v === null) ? '' : v; });
+    return o;
+  });
+  const wb = XLSX.utils.book_new();
+  const sheetName = title.replace(/[\\\/\?\*\[\]:]/g,'').slice(0,31) || 'Data';
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(exportRows), sheetName);
+  const fileName = 'MP_Developers_' + (title.replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'_') || 'KPI_Data') + '_' + new Date().toISOString().slice(0,10) + '.xlsx';
+  XLSX.writeFile(wb, fileName);
 });
 </script>
 </body>
