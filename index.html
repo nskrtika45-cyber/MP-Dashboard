@@ -2422,13 +2422,19 @@ function applyFiltersAndRender(){
   // Date), same "own date, not booking date" convention as Total Agreement Signed/Registered, since a
   // unit booked in one period can be allotted/possessed/handed-over in a later one. Each is gated by
   // its own has*Date flag so the tile simply doesn't render on an older export that predates that column.
-  hasAllotmentDate = RAW.customerRecords.some(r => r.allotmentDate !== '');
-  hasPossessionDate = RAW.customerRecords.some(r => r.possessionDate !== '');
-  hasDeedHandoverDate = RAW.customerRecords.some(r => r.deedHandoverDate !== '');
+  // Truthy checks (not just "!== ''") deliberately, so a record object that's missing these fields
+  // entirely — e.g. previously-published Firestore data saved before these three columns were parsed,
+  // where the property is undefined rather than '' — is treated the same as "no date on this row"
+  // instead of silently passing as "has a date" (undefined !== '' is true, which would otherwise
+  // count every single row). Re-uploading the report through Generate re-parses it with the current
+  // code and republishes, at which point every row genuinely gets '' or a real date, same as here.
+  hasAllotmentDate = RAW.customerRecords.some(r => !!r.allotmentDate);
+  hasPossessionDate = RAW.customerRecords.some(r => !!r.possessionDate);
+  hasDeedHandoverDate = RAW.customerRecords.some(r => !!r.deedHandoverDate);
   const unitValueOf = r => r.totalFlatCost !== null ? r.totalFlatCost : r.after * r.area;
-  const allotmentGivenRows = filterFull(RAW.customerRecords, 'allotmentDate').filter(r=>r.allotmentDate !== '');
-  const possessionGivenRows = filterFull(RAW.customerRecords, 'possessionDate').filter(r=>r.possessionDate !== '');
-  const deedHandoverRows = filterFull(RAW.customerRecords, 'deedHandoverDate').filter(r=>r.deedHandoverDate !== '');
+  const allotmentGivenRows = filterFull(RAW.customerRecords, 'allotmentDate').filter(r=>!!r.allotmentDate);
+  const possessionGivenRows = filterFull(RAW.customerRecords, 'possessionDate').filter(r=>!!r.possessionDate);
+  const deedHandoverRows = filterFull(RAW.customerRecords, 'deedHandoverDate').filter(r=>!!r.deedHandoverDate);
   allotmentGivenCount = allotmentGivenRows.length;
   allotmentGivenValue = allotmentGivenRows.reduce((a,r)=>a+unitValueOf(r), 0);
   possessionGivenCount = possessionGivenRows.length;
