@@ -1393,6 +1393,18 @@ let hasTotalFlatCost = false;
 // Report's own Allotment Date / Posession Date / Deed Handed Over Date columns (optional; absent on
 // older exports, hence the has* flags gating whether each tile renders at all).
 let hasAllotmentDate = false, hasPossessionDate = false, hasDeedHandoverDate = false;
+// Whether each milestone column was actually FOUND in the header row of the most recently uploaded
+// Customer Detail Report (set by parseCustomerDetails on every fresh upload/parse this session) — as
+// opposed to hasAllotmentDate/etc above, which is "found AND at least one row has a real value". This
+// is what lets renderAgreementPage() tell "the ERP export genuinely has no data for this yet" (column
+// found, all blank — normal, no warning) apart from "the column isn't even in this export under the
+// header text this dashboard looks for" (worth a visible warning, since that's a silent-failure trap:
+// the tile would otherwise just never appear with no clue why). Starts at null ("unknown") rather than
+// false, because a viewer who loads an already-published dashboard from Firestore never calls
+// parseCustomerDetails at all — RAW is reconstituted directly from the persisted chunks — so there's
+// no fresh parse to report on, and null tells renderAgreementPage() to skip the warning rather than
+// wrongly claim a column is missing based on stale/absent information.
+let milestoneColsFound = { allotment: null, possession: null, deedHandover: null };
 let allotmentGivenCount = 0, allotmentGivenValue = 0;
 let possessionGivenCount = 0, possessionGivenValue = 0;
 let deedHandoverCount = 0, deedHandoverValue = 0;
@@ -1581,6 +1593,14 @@ function parseCustomerDetails(wb){
   const allotmentDateIdx = colCI('Allotment Date');
   const possessionDateIdx = colCI('Posession Date');
   const deedHandoverDateIdx = colCI('Deed Handed Over Date');
+  // Record whether each column was actually located in this export's header row at all — see the
+  // milestoneColsFound declaration (near the other milestone globals) for why this is tracked
+  // separately from whether any row ends up with a real value.
+  milestoneColsFound = {
+    allotment: allotmentDateIdx !== undefined,
+    possession: possessionDateIdx !== undefined,
+    deedHandover: deedHandoverDateIdx !== undefined,
+  };
   const records = [];
   let currentProject = null, currentSubProject = null;
   for(let i=headerIdx+1; i<rows.length; i++){
@@ -3076,12 +3096,26 @@ function renderAgreementPage(){
     hasDeedHandoverDate ? {lbl:'Total Deed Handover', key:'deedHandover', val: fmtNum(deedHandoverCount), sub: `${fmtINRCr(deedHandoverValue)} booking value &middot; by Deed Handed Over Date`} : null,
   ].filter(Boolean);
   const milestoneCards = milestoneCardDefs.map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+  // Visible self-diagnosis for the exact "tile never showed up and I can't tell why" trap: if a
+  // column's index genuinely wasn't found in the header row of the file that was just uploaded and
+  // parsed THIS session (milestoneColsFound.* === false, not null/unknown — see the global's own
+  // comment for why null means "skip this, we don't actually know"), say so in plain text right on the
+  // dashboard instead of just letting that tile silently never render. Whoever is uploading (MIS) sees
+  // this immediately after Generate & publish, without needing to send anyone the file to find out why.
+  const missingMilestoneCols = [];
+  if(milestoneColsFound.allotment === false) missingMilestoneCols.push("'Allotment Date'");
+  if(milestoneColsFound.possession === false) missingMilestoneCols.push("'Posession Date'");
+  if(milestoneColsFound.deedHandover === false) missingMilestoneCols.push("'Deed Handed Over Date'");
+  const milestoneDiagNote = missingMilestoneCols.length
+    ? `<div class="kpi-group-label" style="color:var(--brick);">Note: column${missingMilestoneCols.length>1?'s':''} ${missingMilestoneCols.join(', ')} not found in the header row of the uploaded Customer Detail Report — the tile${missingMilestoneCols.length>1?'s':''} will stay hidden until the export's column header text matches this exactly (case doesn't matter, but the wording and spacing do).</div>`
+    : '';
   const periodLabel = periodFilterActive() ? 'Signed / registered in the selected period' : 'Signed / registered (no period selected — all-time)';
   const periodCards = [
     {lbl:'Total Agreement Signed', key:'agreementSigned', val: fmtNum(agreementSignedCount), sub: `${fmtINRCr(agreementSignedValue)} booking value &middot; by Agreement Date`},
     {lbl:'Total Unit Registered', key:'agreementRegistered', val: fmtNum(agreementRegisteredCount), sub: `${fmtINRCr(agreementRegisteredValue)} booking value &middot; by Regn Date`},
   ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   document.getElementById('kpiGridAgreement').innerHTML = backlogCards +
+    milestoneDiagNote +
     (milestoneCardDefs.length ? `<div class="kpi-group-label">${milestoneLabel}</div>` + milestoneCards : '') +
     `<div class="kpi-group-label">${periodLabel}</div>` + periodCards;
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
