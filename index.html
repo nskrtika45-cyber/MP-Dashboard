@@ -103,6 +103,16 @@
   }
   .last-updated-badge .dot{width:7px;height:7px;border-radius:50%;background:var(--teal);flex-shrink:0;}
   .last-updated-badge .muted-part{color:var(--muted);font-weight:400;}
+  /* Shown the moment a signed-in viewer is waiting on tryLoadPublishedData()'s Firestore reads —
+     without this there's a blank gap between sign-in and the dashboard appearing that, for a larger
+     published dataset, can be several seconds long with zero on-screen feedback, which reads as the
+     page having frozen rather than as it genuinely working. */
+  .dashboard-loading{
+    display:flex;align-items:center;gap:10px;background:var(--navy-pale);border:1px solid var(--border);
+    border-radius:8px;padding:14px 16px;margin-bottom:18px;font-size:13px;color:var(--navy);font-weight:600;
+  }
+  .dashboard-loading .spin{width:15px;height:15px;flex-shrink:0;border-radius:50%;border:2.5px solid var(--border);border-top-color:var(--navy);animation:dashloadspin .7s linear infinite;}
+  @keyframes dashloadspin{to{transform:rotate(360deg);}}
   .empty-state{
     background:var(--card);border:1px solid var(--border);border-radius:10px;padding:60px 30px;
     text-align:center;color:var(--muted);
@@ -408,6 +418,7 @@
 </header>
 <main>
 <div id="dashboardView">
+  <div class="dashboard-loading" id="dashboardLoading" style="display:none;"><span class="spin"></span>Loading dashboard data…</div>
   <div class="last-updated-badge" id="lastUpdatedBadge" style="display:none;"></div>
   <div class="upload-card" id="uploadCard">
     <h2>Load this month's reports</h2>
@@ -748,6 +759,16 @@
   for(let i=0;i<40;i++) html += '<i></i>';
   el.innerHTML = html;
 })();
+// This dashboard renders up to 19 Chart.js instances at once, and every one of them gets fully
+// destroyed and recreated (destroyChart() + new Chart()) on EVERY filter change, not just on first
+// load — see applyFiltersAndRender() -> renderAll() -> render*Page(). Chart.js's default entrance
+// animation (~1 second per chart) runs again each time, which is the single biggest contributor to
+// "changing a filter feels slow": up to 19 charts worth of animation frames competing for the main
+// thread right when the page should be settling into its new, already-correct state. Turning
+// animation off globally doesn't change any data, chart type, or layout — it only means a redrawn
+// chart appears at its final state immediately instead of animating in, which for a data dashboard
+// people refresh and re-filter often reads as *faster*, not less polished.
+Chart.defaults.animation = false;
 /* ============ FIREBASE AUTH + FIRESTORE (MIS vs Management) ============ */
 // Real access control: Firebase Authentication identifies the signed-in person, and their role
 // (mis / management) is looked up from Firestore. Firestore security rules (set up separately,
@@ -765,6 +786,19 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
+// Cache every Firestore document this app reads in the browser's own local storage (IndexedDB), not
+// just in memory for the current page view. The published dashboard only actually changes when MIS
+// uploads and republishes — typically once a month — so almost every time someone opens this
+// dashboard again afterward, the exact same chunk documents are still current. With persistence on,
+// those repeat opens are served straight from the local cache instead of re-downloading every chunk
+// over the network each time, while Firestore keeps that cache synced in the background so it's
+// never stale beyond whatever's actually published. This is a pure speed win with no functional
+// downside if it can't be enabled (e.g. more than one tab of this dashboard open at once, or a
+// private/incognito window that blocks IndexedDB) — it just silently falls back to normal network
+// reads in that case, same as before this existed.
+db.enablePersistence().catch((err)=>{
+  console.warn('Firestore offline persistence not enabled (falling back to normal network reads):', err.code || err.message);
+});
 // Firestore caps each document at 1MiB. The combined RAW data can exceed that (it's already
 // ~1.4MB with 5 reports loaded), so each RAW.* array is stored as its own small document instead
 // of one big one — every individual piece has comfortable headroom to keep growing month to month.
@@ -1168,13 +1202,17 @@ async function enterRole(role, user, myGeneration){
     // Remove the upload UI from the DOM entirely for Management, not just hide it.
     removeEl('uploadCard');
     removeEl('loadedBar');
+    setStyle('dashboardLoading','display','flex'); // see the CSS comment above — otherwise this gap is a silent, unexplained pause
     const loaded = await tryLoadPublishedData();
+    setStyle('dashboardLoading','display','none');
     if(myGeneration !== authStateGeneration) return; // a newer sign-in event has since taken over
     setStyle('dashboard','display', loaded ? 'block' : 'none');
     setStyle('emptyState','display', loaded ? 'none' : 'block');
   } else {
     removeEl('emptyState');
+    setStyle('dashboardLoading','display','flex');
     const loaded = await tryLoadPublishedData();
+    setStyle('dashboardLoading','display','none');
     if(myGeneration !== authStateGeneration) return; // a newer sign-in event has since taken over
     if(loaded){
       setStyle('uploadCard','display','none');
