@@ -68,6 +68,15 @@
   .role-gate-eyebrow{color:var(--gold-light);letter-spacing:.14em;text-transform:uppercase;font-size:11px;font-weight:600;margin:0 0 8px;}
   .role-gate-inner h1{font-family:'Fraunces',serif;font-size:32px;font-weight:600;margin:0 0 10px;}
   .role-gate-sub{color:#C7CAE8;font-size:14px;margin:0 0 30px;}
+  /* Shown by default (before Firebase's async onAuthStateChanged has had a chance to fire), in
+     place of the login form below — otherwise an already-signed-in user (or a browser-automation
+     script driving a persisted session) sees a flash of the login screen for the split second
+     between first paint and Firebase confirming the cached session, and anything trying to
+     interact with #loginEmail during that window can lose a race against the form disappearing
+     out from under it. Hidden the instant onAuthStateChanged first fires, whichever way it resolves. */
+  .authchecking-spin{width:32px;height:32px;border-radius:50%;border:3px solid rgba(255,255,255,.25);
+    border-top-color:#fff;margin:0 auto 22px;animation:authcheckspin .8s linear infinite;}
+  @keyframes authcheckspin{to{transform:rotate(360deg);}}
   .role-cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;text-align:left;}
   @media (max-width:560px){.role-cards{grid-template-columns:1fr;}}
   .role-card{
@@ -364,7 +373,13 @@
 </style>
 </head>
 <body>
-<div id="roleGate" class="role-gate">
+<div id="authChecking" class="role-gate">
+  <div class="role-gate-inner">
+    <div class="authchecking-spin"></div>
+    <p class="role-gate-sub" style="margin:0;">Checking sign-in status&hellip;</p>
+  </div>
+</div>
+<div id="roleGate" class="role-gate" style="display:none;">
   <div class="role-gate-inner">
     <p class="role-gate-eyebrow">Created by MP Developers ERP Team</p>
     <h1>Purchase Dashboard</h1>
@@ -809,6 +824,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e)=>{
 auth.onAuthStateChanged(async (user)=>{
   const myGeneration = ++authStateGeneration;
   const btn = document.getElementById('loginSubmitBtn');
+  setStyle('authChecking','display','none'); // first real signal from Firebase — swap the "checking" placeholder out for whichever screen actually applies below
   if(!user){
     setStyle('roleGate','display','flex');
     setStyle('pendingScreen','display','none');
