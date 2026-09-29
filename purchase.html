@@ -416,10 +416,16 @@
     <p class="sub">Upload the export from IN4 ERP. Nothing leaves your browser — the file is parsed locally.</p>
     <div class="upload-grid four">
       <label class="drop" id="dropPurchase">
-        <div class="label">All Purchase Payments Report</div>
+        <div class="label">1 &middot; All Purchase Payments Report</div>
         <div class="fname" id="fnamePurchase">Click to choose file (.xlsx)</div>
         <div class="hint">ERP report name: "PUR All Purchase Payments Report" &mdash; purchase value, vendor outstanding &amp; overdue payments</div>
         <input type="file" id="filePurchase" accept=".xlsx">
+      </label>
+      <label class="drop" id="dropAgeing">
+        <div class="label">2 &middot; Finance Outstanding Report <span style="text-transform:none;font-weight:400;">(optional)</span></div>
+        <div class="fname" id="fnameAgeing">Click to choose file (.xlsx)</div>
+        <div class="hint">ERP report name: "Supplier Outstanding Report With Ageing" &mdash; adds the Due Ageing section (0-30/31-60/61-90/91-180/&gt;180 day buckets, vendor-wise, by financial year) and cross-checks its Outstanding total against the Purchase Payments Report's own figure</div>
+        <input type="file" id="fileAgeing" accept=".xlsx">
       </label>
     </div>
     <div class="btn-row">
@@ -478,6 +484,37 @@
     <div class="chart-grid">
       <div class="chart-card"><h3>Outstanding: overdue vs not yet due (₹ Cr)</h3><div class="wrap tall"><canvas id="chartPurchaseOverdueSplit"></canvas></div></div>
       <div class="chart-card"><h3>Top vendors by outstanding (top 15, ₹ Cr)</h3><div class="wrap tall"><canvas id="chartPurchaseTopVendors"></canvas></div></div>
+    </div>
+    <div id="dueAgeingSection" style="display:none;">
+    <div class="section-title group"><h2>Due Ageing</h2><div class="line"></div></div>
+    <p class="chart-note" style="margin:4px 2px 18px;">From the Finance team's "Supplier Outstanding Report With Ageing" (Detailed sheet) — every invoice's Outstanding Amount split into the ERP's own 0-30 / 31-60 / 61-90 / 91-180 / &gt;180 day buckets. This is a snapshot as of that report's own date, always shown Project-only (not narrowed by the Financial Year/Month picker above) — same convention as Outstanding Balance on the main Sales &amp; CRM dashboard.</p>
+    <div class="kpi-grid" id="kpiGridAgeing"></div>
+    <div class="chart-grid">
+      <div class="chart-card"><h3>Outstanding by ageing bucket (₹ Cr)</h3><div class="wrap tall"><canvas id="chartAgeingBuckets"></canvas></div></div>
+      <div class="chart-card"><h3>Ageing by financial year of invoice (₹ Cr)</h3><div class="wrap tall"><canvas id="chartAgeingByFY"></canvas></div></div>
+    </div>
+    <p class="chart-note" style="margin:10px 2px 18px;">The FY chart groups each invoice by its own Invoice Date, then shows how much of that invoice's CURRENT outstanding balance falls into each ageing bucket today — so it answers "how much of what's now overdue originated from invoices raised in an earlier financial year," not "how much was outstanding back then."</p>
+    <div class="chart-grid one">
+      <div class="chart-card"><h3>Ageing by vendor (top 15, ₹ Cr)</h3><div class="wrap xtall"><canvas id="chartAgeingByVendor"></canvas></div></div>
+    </div>
+    <div class="section-title"><h2>Vendor-wise Due Ageing Detail</h2><div class="line"></div></div>
+    <div class="table-toolbar">
+      <input type="text" id="ageingSearchBox" placeholder="Search vendor...">
+    </div>
+    <div class="table-card">
+      <div class="table-scroll">
+        <table id="ageingVendorTable">
+          <thead><tr id="ageingVendorTheadRow"></tr></thead>
+          <tbody id="ageingVendorTbody"></tbody>
+          <tfoot><tr id="ageingVendorTfootRow"></tr></tfoot>
+        </table>
+      </div>
+    </div>
+    <div class="btn-row" style="margin-top:12px;margin-bottom:24px;">
+      <div style="margin-left:auto;">
+        <button class="btn btn-ghost" id="exportAgeingBtn">Download Due Ageing (.xlsx)</button>
+      </div>
+    </div>
     </div>
     <div class="section-title"><h2>FY-wise Payment Summary</h2><div class="line"></div></div>
     <p class="chart-note" style="margin:4px 2px 18px;">Grouped by each certificate's Creation Date (Apr&ndash;Mar financial year). "Paid" and "Processed" are the ERP's own Status values; "Not Paid" covers everything else still pending (Approved, Submitted, Partially Paid).</p>
@@ -561,7 +598,7 @@ const db = firebase.firestore();
 // publishes and loads independently of Sales/CRM, same way Purchase is its own top-level module
 // in the ERP itself rather than something nested under Sales.
 const DASH_COL = db.collection('purchaseDashboardData');
-const RAW_KEYS = ['purchaseRecords'];
+const RAW_KEYS = ['purchaseRecords', 'outstandingAgeingRecords'];
 let currentRole = null;
 let currentUser = null;
 let lastPublished = null; // {at: ISOString, files: [...]}
@@ -808,7 +845,12 @@ auth.onAuthStateChanged(async (user)=>{
 });
 /* ============ UPLOAD / PARSE / RENDER ============ */
 let fileData = null;
-let RAW = { purchaseRecords: [] };
+let fileAgeingData = null;
+let RAW = { purchaseRecords: [], outstandingAgeingRecords: [] };
+// Vendor-wise and FY-wise Due Ageing rollups — cached here so their own "Download Excel" button
+// can export exactly what's on screen without recomputing.
+let ageingVendorData = [];
+let ageingFYData = [];
 let charts = {};
 const sortStates = {};
 // FY-wise Payment Summary — cached here so the "Download Excel" button on that table can export
@@ -1263,6 +1305,67 @@ function parsePurchaseRecords(wb){
   }
   return records;
 }
+/* ============ FINANCE OUTSTANDING REPORT ("Supplier Outstanding Report With Ageing") ============ */
+// Optional, second file — adds the Due Ageing section (0-30/31-60/61-90/91-180/>180 day buckets,
+// vendor-wise, by financial year) and a reconciliation check against the Purchase Payments Report's
+// own Outstanding Amt figure. Parsed from Sheet2 ("...Detailed"), not Sheet1: Sheet1 is a grouped/
+// rolled-up view where some rows carry a blank Vendor/PO for that same vendor's other projects — an
+// ambiguous shape to parse reliably. Sheet2 is fully flat, one row per invoice, and its own Grand
+// Total independently reconciles to Sheet1's, confirmed against a real export, so nothing is lost by
+// using Sheet2 alone.
+function parseFinanceOutstandingReport(wb){
+  const sheetName = wb.SheetNames.find(n => n.toLowerCase() === 'sheet2') || wb.SheetNames[wb.SheetNames.length-1];
+  const ws = wb.Sheets[sheetName];
+  const rows = sheetToRows(ws);
+  let headerIdx = rows.findIndex(r => (r[0]+'').trim()==='Company' && (r[1]+'').trim()==='Vendor');
+  if(headerIdx < 0) headerIdx = 4;
+  const headerRow = rows[headerIdx] || [];
+  const col = {};
+  headerRow.forEach((v,idx)=>{ const t=normalizeHeader(v); if(t && col[t]===undefined) col[t]=idx; });
+  // Case-insensitive fallback, same colCI() convention as the main dashboard — a defensive measure in
+  // case a future export re-cases one of these headers, so this doesn't repeat the header-spelling
+  // mismatch that silently broke the main dashboard's milestone tiles.
+  const colUpper = {};
+  Object.keys(col).forEach(k=>{ const u=k.toUpperCase(); if(colUpper[u]===undefined) colUpper[u]=col[k]; });
+  const colCI = (name) => col[name] !== undefined ? col[name] : colUpper[name.toUpperCase()];
+  const vendorIdx = colCI('Vendor') !== undefined ? colCI('Vendor') : 1;
+  const projectIdx = colCI('Project') !== undefined ? colCI('Project') : 5;
+  const invoiceNoIdx = colCI('Invoice No') !== undefined ? colCI('Invoice No') : 6;
+  const invoiceDateIdx = colCI('Invoice Date') !== undefined ? colCI('Invoice Date') : 7;
+  const certificateIdIdx = colCI('Certificate ID') !== undefined ? colCI('Certificate ID') : 8;
+  const processedDateIdx = colCI('Processed Date') !== undefined ? colCI('Processed Date') : 9;
+  const grossAmtIdx = colCI('Gross Amt') !== undefined ? colCI('Gross Amt') : 10;
+  const payableAmtIdx = colCI('Payable Amt') !== undefined ? colCI('Payable Amt') : 12;
+  const paidAmtIdx = colCI('Paid Amt') !== undefined ? colCI('Paid Amt') : 13;
+  const outstandingAmtIdx = colCI('Outstanding Amt') !== undefined ? colCI('Outstanding Amt') : 14;
+  const bucket0_30Idx = colCI('0-30 Days') !== undefined ? colCI('0-30 Days') : 15;
+  const bucket31_60Idx = colCI('31-60') !== undefined ? colCI('31-60') : 16;
+  const bucket61_90Idx = colCI('61-90') !== undefined ? colCI('61-90') : 17;
+  const bucket91_180Idx = colCI('91-180') !== undefined ? colCI('91-180') : 18;
+  const bucketOver180Idx = colCI('>180') !== undefined ? colCI('>180') : 19;
+  const numOr0 = v => typeof v === 'number' ? v : 0;
+  const records = [];
+  for(let i=headerIdx+1; i<rows.length; i++){
+    const r = rows[i];
+    if(!r) continue;
+    // The report's own Grand Total row carries that label in the Processed Date column position —
+    // stop there rather than parsing it as a vendor with a blank name.
+    if(typeof r[processedDateIdx] === 'string' && r[processedDateIdx].includes('Grand Total')) break;
+    const vendor = r[vendorIdx];
+    if(vendor === null || vendor === undefined || (''+vendor).trim() === '') continue;
+    records.push({
+      vendor: (''+vendor).trim(),
+      project: (r[projectIdx] || '').toString().trim() || 'Unspecified',
+      invoiceNo: r[invoiceNoIdx] || '', invoiceDate: r[invoiceDateIdx] || '',
+      certificateId: r[certificateIdIdx] || '', processedDate: r[processedDateIdx] || '',
+      grossAmt: numOr0(r[grossAmtIdx]), payableAmt: numOr0(r[payableAmtIdx]), paidAmt: numOr0(r[paidAmtIdx]),
+      outstandingAmt: numOr0(r[outstandingAmtIdx]),
+      bucket0_30: numOr0(r[bucket0_30Idx]), bucket31_60: numOr0(r[bucket31_60Idx]), bucket61_90: numOr0(r[bucket61_90Idx]),
+      bucket91_180: numOr0(r[bucket91_180Idx]), bucketOver180: numOr0(r[bucketOver180Idx]),
+    });
+  }
+  return records;
+}
 // FY-wise Payment Summary — grouped by each certificate's Creation Date (Apr-Mar financial year,
 // same convention as the main dashboard). Called with a Project-only filtered set (not Project+FY+
 // Month) — same convention the main dashboard uses for its own by-FY trend views (bookingFYData,
@@ -1332,6 +1435,171 @@ function renderPurchaseFYSummary(records){
     <td style="text-align:right;"><b>${fmtINRCr(grand.totalValue)}</b></td>
   `;
 }
+// Due Ageing — from the Finance team's optional "Supplier Outstanding Report With Ageing" upload.
+// Always Project-only (never narrowed by the FY/Month picker), same convention as the FY-wise Payment
+// Summary above and as Outstanding Balance on the main Sales & CRM dashboard — this is a snapshot of
+// TODAY's outstanding balance, not a period-bound figure, so slicing it by FY/Month would misrepresent
+// it. Called with the Project-only-filtered ALL-TIME Purchase Payments Report records (not re-filtered
+// by FY/Month either) purely so the Reconciliation KPI tile below compares two "as of today" figures
+// on an apples-to-apples basis.
+function renderDueAgeingSection(purchaseAllTimeProjectOnly){
+  const sectionEl = document.getElementById('dueAgeingSection');
+  const kpiAgeingEl = document.getElementById('kpiGridAgeing');
+  if(!RAW.outstandingAgeingRecords.length){
+    if(sectionEl) sectionEl.style.display = 'none';
+    if(kpiAgeingEl) kpiAgeingEl.innerHTML = '';
+    destroyChart('ageingBuckets'); destroyChart('ageingByFY'); destroyChart('ageingByVendor');
+    ageingVendorData = []; ageingFYData = [];
+    return;
+  }
+  if(sectionEl) sectionEl.style.display = 'block';
+  const ageingFiltered = filterProjectOnly(RAW.outstandingAgeingRecords);
+  const BUCKET_KEYS = ['bucket0_30','bucket31_60','bucket61_90','bucket91_180','bucketOver180'];
+  const BUCKET_LABELS = ['0-30 Days','31-60 Days','61-90 Days','91-180 Days','>180 Days'];
+  const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
+  const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
+  const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
+  const brick = getComputedStyle(document.documentElement).getPropertyValue('--brick').trim();
+  const BUCKET_COLORS = [teal, gold, brick, '#8B2E2E', '#5B1A08'];
+  const bucketTotals = BUCKET_KEYS.map(k => ageingFiltered.reduce((a,r)=>a+(r[k]||0),0));
+  const ageingTotalOutstanding = ageingFiltered.reduce((a,r)=>a+(r.outstandingAmt||0),0);
+  const over90Total = bucketTotals[3] + bucketTotals[4]; // 91-180 + >180
+  const ageingVendorCount = new Set(ageingFiltered.map(r=>r.vendor)).size;
+  // Reconciliation: the Purchase Payments Report's own Outstanding Amt (all-time, Project-only, same
+  // basis regardless of the FY/Month picker) vs. this report's own Outstanding Amt. The two ERP
+  // reports can genuinely disagree — surfaced as-is, both figures and the gap, rather than silently
+  // picking one, same convention as Total Booking Value vs Sales Value on the main dashboard.
+  const purchaseOutstandingAllTime = purchaseAllTimeProjectOnly.reduce((a,r)=> a + (r.outstandingAmt>0 ? r.outstandingAmt : 0), 0);
+  const reconciliationDiff = ageingTotalOutstanding - purchaseOutstandingAllTime;
+  const reconciliationPct = purchaseOutstandingAllTime ? (Math.abs(reconciliationDiff) / purchaseOutstandingAllTime * 100) : 0;
+  // ---- KPI drill-down data ----
+  kpiDrillData.ageingAll = ageingFiltered.slice().sort((a,b)=>b.outstandingAmt-a.outstandingAmt);
+  kpiDrillData.ageingOver90 = ageingFiltered
+    .map(r=>({ ...r, over90Amt: (r.bucket91_180||0) + (r.bucketOver180||0) }))
+    .filter(r=>r.over90Amt > 0)
+    .sort((a,b)=>b.over90Amt-a.over90Amt);
+  if(kpiAgeingEl){
+    const tiles = [
+      {lbl:'Total Outstanding (Ageing Report)', key:'ageingAll', val: fmtINRCr(ageingTotalOutstanding), sub: `${fmtNum(ageingFiltered.length)} invoices &middot; ${fmtNum(ageingVendorCount)} vendors`},
+      {lbl:'&gt;90 Days Overdue', key:'ageingOver90', val: fmtINRCr(over90Total), sub: `${(ageingTotalOutstanding ? over90Total/ageingTotalOutstanding*100 : 0).toFixed(1)}% of total outstanding`},
+      {lbl:'Reconciliation vs Purchase Report', key:null, val: (reconciliationDiff>=0?'+':'&minus;') + fmtINRCr(Math.abs(reconciliationDiff)), sub: `Ageing Rpt ${fmtINRCr(ageingTotalOutstanding)} vs Purchase Rpt ${fmtINRCr(purchaseOutstandingAllTime)} &middot; ${reconciliationPct.toFixed(1)}% gap`},
+    ];
+    kpiAgeingEl.innerHTML = tiles.map(c=>`<div class="kpi"${c.key?` data-drill="${c.key}"`:''}><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
+  }
+  // ---- Bucket distribution doughnut ----
+  destroyChart('ageingBuckets');
+  if(ageingTotalOutstanding <= 0){
+    chartEmptyMessage('chartAgeingBuckets', 'No outstanding balance to split.');
+  } else {
+    chartClearEmptyMessage('chartAgeingBuckets');
+    charts.ageingBuckets = new Chart(document.getElementById('chartAgeingBuckets'), {
+      type:'doughnut',
+      data:{ labels: BUCKET_LABELS, datasets:[{ data: bucketTotals.map(v=>v/1e7), backgroundColor: BUCKET_COLORS, borderWidth:2, borderColor:'#fff' }] },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}},
+          tooltip:{callbacks:{label: ctx=> ctx.label+': ₹'+ctx.raw.toFixed(2)+' Cr'}},
+          datalabels:{ color:'#fff', font:{weight:'700',size:11}, formatter:(v)=> v>0.005 ? '₹'+v.toFixed(2)+'Cr' : '' }
+        }
+      },
+      plugins:[ChartDataLabels]
+    });
+  }
+  // ---- Vendor-wise aggregation (named vendorAgeingMap — distinct from vendorMap/vendorAggMap already
+  // used elsewhere in renderPurchasePage(), to avoid the SyntaxError from a prior redeclaration bug) ----
+  const vendorAgeingMap = {};
+  ageingFiltered.forEach(r=>{
+    if(!vendorAgeingMap[r.vendor]) vendorAgeingMap[r.vendor] = { vendor: r.vendor, invoices: 0,
+      bucket0_30:0, bucket31_60:0, bucket61_90:0, bucket91_180:0, bucketOver180:0, outstandingAmt:0 };
+    const v = vendorAgeingMap[r.vendor];
+    v.invoices += 1;
+    BUCKET_KEYS.forEach(k=> v[k] += (r[k]||0));
+    v.outstandingAmt += (r.outstandingAmt||0);
+  });
+  ageingVendorData = Object.values(vendorAgeingMap).sort((a,b)=>b.outstandingAmt-a.outstandingAmt);
+  const topAgeingVendors = ageingVendorData.slice(0, 15);
+  destroyChart('ageingByVendor');
+  if(topAgeingVendors.length === 0){
+    chartEmptyMessage('chartAgeingByVendor', 'No vendor ageing data to show.');
+  } else {
+    chartClearEmptyMessage('chartAgeingByVendor');
+    charts.ageingByVendor = new Chart(document.getElementById('chartAgeingByVendor'), {
+      type:'bar',
+      data:{
+        labels: topAgeingVendors.map(v=>v.vendor),
+        datasets: BUCKET_KEYS.map((k,i)=>({ label: BUCKET_LABELS[i], data: topAgeingVendors.map(v=>v[k]/1e7), backgroundColor: BUCKET_COLORS[i] }))
+      },
+      options:{
+        indexAxis:'y', responsive:true, maintainAspectRatio:false,
+        scales:{ x:{ stacked:true, title:{display:true,text:'₹ Crore outstanding'}, grid:{color:'#EEF1F5'} }, y:{ stacked:true, grid:{display:false} } },
+        plugins:{
+          legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}},
+          tooltip:{callbacks:{label: ctx=> ctx.dataset.label+': ₹'+ctx.raw.toFixed(2)+' Cr'}},
+          datalabels:{display:false}
+        }
+      },
+      plugins:[ChartDataLabels]
+    });
+  }
+  // ---- FY-of-invoice aggregation — grouped by each invoice's OWN Invoice Date, showing how much of
+  // TODAY's outstanding balance (per bucket) originated from invoices raised in that financial year;
+  // not a historical trend of what was outstanding back then (see the chart-note above the chart). ----
+  const fyAgeingMap = {};
+  ageingFiltered.forEach(r=>{
+    const fy = financialYearOf(r.invoiceDate);
+    const label = fy ? fy.label : 'Unknown';
+    const sortKey = fy ? fy.sortKey : -Infinity;
+    if(!fyAgeingMap[label]) fyAgeingMap[label] = { label, sortKey,
+      bucket0_30:0, bucket31_60:0, bucket61_90:0, bucket91_180:0, bucketOver180:0, outstandingAmt:0 };
+    const g = fyAgeingMap[label];
+    BUCKET_KEYS.forEach(k=> g[k] += (r[k]||0));
+    g.outstandingAmt += (r.outstandingAmt||0);
+  });
+  ageingFYData = Object.values(fyAgeingMap).sort((a,b)=>a.sortKey-b.sortKey);
+  destroyChart('ageingByFY');
+  if(ageingFYData.length === 0){
+    chartEmptyMessage('chartAgeingByFY', 'No ageing data to show.');
+  } else {
+    chartClearEmptyMessage('chartAgeingByFY');
+    charts.ageingByFY = new Chart(document.getElementById('chartAgeingByFY'), {
+      type:'bar',
+      data:{
+        labels: ageingFYData.map(g=>g.label),
+        datasets: BUCKET_KEYS.map((k,i)=>({ label: BUCKET_LABELS[i], data: ageingFYData.map(g=>g[k]/1e7), backgroundColor: BUCKET_COLORS[i] }))
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, title:{display:true,text:'₹ Crore'}, grid:{color:'#EEF1F5'} } },
+        plugins:{
+          legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}},
+          tooltip:{callbacks:{label: ctx=> ctx.dataset.label+': ₹'+ctx.raw.toFixed(2)+' Cr'}},
+          datalabels:{display:false}
+        }
+      },
+      plugins:[ChartDataLabels]
+    });
+  }
+  // ---- Vendor-wise detail table ----
+  renderGenericTable({
+    theadId:'ageingVendorTheadRow', tbodyId:'ageingVendorTbody', tfootId:'ageingVendorTfootRow', searchId:'ageingSearchBox',
+    searchFields:['vendor'],
+    sortStateKey:'ageingVendor',
+    columns:[
+      {key:'vendor', label:'Vendor', align:'left'},
+      {key:'invoices', label:'Invoices', fmt:fmtNum},
+      {key:'bucket0_30', label:'0-30 Days', fmt:fmtINRCr},
+      {key:'bucket31_60', label:'31-60 Days', fmt:fmtINRCr},
+      {key:'bucket61_90', label:'61-90 Days', fmt:fmtINRCr},
+      {key:'bucket91_180', label:'91-180 Days', fmt:fmtINRCr},
+      {key:'bucketOver180', label:'&gt;180 Days', fmt:fmtINRCr},
+      {key:'outstandingAmt', label:'Total Outstanding', fmt:fmtINRCr},
+    ],
+    rowsSource: ageingVendorData,
+    defaultSort:{key:'outstandingAmt', dir:-1},
+    totalsLabel:'vendors'
+  });
+}
 function renderPurchasePage(){
   renderFilterSummary();
   const allRecords = RAW.purchaseRecords;
@@ -1339,9 +1607,14 @@ function renderPurchasePage(){
   if(!allRecords.length){
     if(kpiEl) kpiEl.innerHTML = '';
     destroyChart('purchaseByProject'); destroyChart('purchaseStatus'); destroyChart('purchaseOverdueSplit'); destroyChart('purchaseTopVendors'); destroyChart('materialsUsed');
+    destroyChart('ageingBuckets'); destroyChart('ageingByFY'); destroyChart('ageingByVendor');
     purchaseFYSummaryData = [];
     materialsUsedData = [];
+    ageingVendorData = []; ageingFYData = [];
     kpiDrillData = {};
+    setStyle('dueAgeingSection','display','none');
+    const kpiAgeingEl = document.getElementById('kpiGridAgeing');
+    if(kpiAgeingEl) kpiAgeingEl.innerHTML = '';
     const fyTheadEl = document.getElementById('purchaseFYTheadRow');
     if(fyTheadEl) fyTheadEl.innerHTML = '';
     const fyTbodyEl = document.getElementById('purchaseFYTbody');
@@ -1386,11 +1659,17 @@ function renderPurchasePage(){
     const d = parseDateAny(r.dueDate);
     return { ...r, daysOverdue: d ? Math.floor((today - d) / 86400000) : null };
   });
+  // Top Material -> computed here (not down by the chart) so the KPI tile below can show it;
+  // materialsUsedData itself is cached for the chart further down to reuse without recomputing.
+  materialsUsedData = buildMaterialsUsedData(records);
+  const topMaterial = materialsUsedData[0] || null;
+  kpiDrillData.materialsUsed = materialsUsedData;
   if(kpiEl){
     kpiEl.innerHTML = [
       {lbl:'Total Purchase Value', key:'purchaseTotal', val: fmtINRCr(totalPurchaseValue), sub: `${fmtNum(records.length)} certificates &middot; ${fmtNum(vendorCount)} vendors`},
       {lbl:'Vendor Outstanding', key:'vendorOutstanding', val: fmtINRCr(vendorOutstandingTotal), sub: `${fmtNum(outstandingRecords.length)} certificates with a balance due`},
       {lbl:'Overdue Outstanding', key:'overdueOutstanding', val: fmtINRCr(overdueTotal), sub: `${fmtNum(overdueRecords.length)} certificates past their due date`},
+      ...(topMaterial ? [{lbl:'Top Material', key:'materialsUsed', val: fmtINRCr(topMaterial.value), sub: `${topMaterial.tag} &middot; ${fmtNum(materialsUsedData.length)} materials tracked, click to view all`}] : []),
     ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   }
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
@@ -1487,8 +1766,7 @@ function renderPurchasePage(){
     plugins:[ChartDataLabels]
   });
   }
-  materialsUsedData = buildMaterialsUsedData(records);
-  const topMaterials = materialsUsedData.slice(0, 20);
+  const topMaterials = materialsUsedData.slice(0, 20); // computed earlier, alongside the Top Material KPI tile
   destroyChart('materialsUsed');
   if(topMaterials.length === 0){
     chartEmptyMessage('chartMaterialsUsed', 'No material data to show.');
@@ -1509,6 +1787,7 @@ function renderPurchasePage(){
     plugins:[ChartDataLabels]
   });
   }
+  renderDueAgeingSection(filterProjectOnly(allRecords));
   renderPurchaseFYSummary(filterProjectOnly(allRecords));
   renderGenericTable({
     theadId:'purchaseTheadRow', tbodyId:'purchaseTbody', tfootId:'purchaseTfootRow', searchId:'purchaseSearchBox',
@@ -1545,6 +1824,7 @@ function wireDrop(dropId, fileId, fnameId, onPick){
   });
 }
 wireDrop('dropPurchase','filePurchase','fnamePurchase', f=>{ fileData = f; checkReady(); });
+wireDrop('dropAgeing','fileAgeing','fnameAgeing', f=>{ fileAgeingData = f; });
 function checkReady(){
   document.getElementById('genBtn').disabled = !fileData;
 }
@@ -1555,10 +1835,23 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
     const wb = await readFileAsWB(fileData);
     RAW.purchaseRecords = parsePurchaseRecords(wb);
     if(RAW.purchaseRecords.length === 0) throw new Error('No purchase records could be recognised in this file.');
+    const fileNames = [fileData.name];
+    // The Finance Outstanding Report is optional — Due Ageing simply stays hidden if it's not attached.
+    if(fileAgeingData){
+      try{
+        const wbAgeing = await readFileAsWB(fileAgeingData);
+        RAW.outstandingAgeingRecords = parseFinanceOutstandingReport(wbAgeing);
+        if(RAW.outstandingAgeingRecords.length) fileNames.push(fileAgeingData.name);
+      }catch(ageingErr){
+        console.error('Could not read the Finance Outstanding Report — continuing without Due Ageing.', ageingErr);
+        RAW.outstandingAgeingRecords = [];
+      }
+    } else {
+      RAW.outstandingAgeingRecords = [];
+    }
     filterState = { project:'', fy:[], month:[] };
     populateFilterOptions();
     renderPurchasePage();
-    const fileNames = [fileData.name];
     document.getElementById('uploadCard').style.display='none';
     document.getElementById('loadedBar').style.display='flex';
     document.getElementById('loadedNames').textContent = 'Loaded ' + fileNames.join(' + ');
@@ -1637,6 +1930,24 @@ document.getElementById('exportFYBtn').addEventListener('click', ()=>{
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(fyExport), 'FY-wise Payment Summary');
   XLSX.writeFile(wb, 'MP_Developers_Purchase_FY_Summary_' + new Date().toISOString().slice(0,10) + '.xlsx');
 });
+document.getElementById('exportAgeingBtn').addEventListener('click', ()=>{
+  const wb = XLSX.utils.book_new();
+  const vendorExport = ageingVendorData.map(v=>({
+    'Vendor': v.vendor, 'Invoices': v.invoices,
+    '0-30 Days (₹)': v.bucket0_30, '31-60 Days (₹)': v.bucket31_60, '61-90 Days (₹)': v.bucket61_90,
+    '91-180 Days (₹)': v.bucket91_180, '>180 Days (₹)': v.bucketOver180,
+    'Total Outstanding (₹)': v.outstandingAmt,
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(vendorExport), 'Due Ageing by Vendor');
+  const fyExportAgeing = ageingFYData.map(g=>({
+    'Financial Year (of Invoice)': g.label,
+    '0-30 Days (₹)': g.bucket0_30, '31-60 Days (₹)': g.bucket31_60, '61-90 Days (₹)': g.bucket61_90,
+    '91-180 Days (₹)': g.bucket91_180, '>180 Days (₹)': g.bucketOver180,
+    'Total Outstanding (₹)': g.outstandingAmt,
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(fyExportAgeing), 'Due Ageing by FY');
+  XLSX.writeFile(wb, 'MP_Developers_Purchase_Due_Ageing_' + new Date().toISOString().slice(0,10) + '.xlsx');
+});
 /* ============ KPI TILE DRILL-DOWN (click a tile above -> records + Download Excel) ============ */
 // Column sets for each clickable tile's modal — ported to the same {key,label,align,fmt} shape the
 // main dashboard's KPI_DRILL_COLUMNS uses, so openKpiDrill()/the Download Excel button below work
@@ -1668,12 +1979,43 @@ const KPI_DRILL_COLUMNS = {
     {key:'totalCost', label:'Total Cost', fmt:fmtINRCr},
     {key:'outstandingAmt', label:'Outstanding Amount', fmt:fmtINRCr},
   ],
+  materialsUsed: [ // Top Material tile — every canonical material (near-duplicate spellings already merged), ranked by value
+    {key:'tag', label:'Material', align:'left'},
+    {key:'certificates', label:'Certificates', fmt:fmtNum},
+    {key:'value', label:'Value', fmt:fmtINRCr},
+  ],
+  ageingAll: [ // Total Outstanding (Ageing Report) tile — every invoice in the Finance Outstanding Report, as-is
+    {key:'vendor', label:'Vendor', align:'left'},
+    {key:'project', label:'Project', align:'left'},
+    {key:'invoiceNo', label:'Invoice No', align:'left'},
+    {key:'invoiceDate', label:'Invoice Date', align:'left', fmt:fmtDateAny},
+    {key:'certificateId', label:'Certificate ID', align:'left'},
+    {key:'bucket0_30', label:'0-30 Days', fmt:fmtINRCr},
+    {key:'bucket31_60', label:'31-60 Days', fmt:fmtINRCr},
+    {key:'bucket61_90', label:'61-90 Days', fmt:fmtINRCr},
+    {key:'bucket91_180', label:'91-180 Days', fmt:fmtINRCr},
+    {key:'bucketOver180', label:'>180 Days', fmt:fmtINRCr},
+    {key:'outstandingAmt', label:'Outstanding Amount', fmt:fmtINRCr},
+  ],
+  ageingOver90: [ // >90 Days Overdue tile — invoices with any balance in the 91-180 or >180 buckets
+    {key:'vendor', label:'Vendor', align:'left'},
+    {key:'project', label:'Project', align:'left'},
+    {key:'invoiceNo', label:'Invoice No', align:'left'},
+    {key:'invoiceDate', label:'Invoice Date', align:'left', fmt:fmtDateAny},
+    {key:'bucket91_180', label:'91-180 Days', fmt:fmtINRCr},
+    {key:'bucketOver180', label:'>180 Days', fmt:fmtINRCr},
+    {key:'over90Amt', label:'>90 Days Total', fmt:fmtINRCr},
+    {key:'outstandingAmt', label:'Outstanding Amount', fmt:fmtINRCr},
+  ],
 };
 function getKpiDrillConfig(key){
   switch(key){
     case 'purchaseTotal': return { columns: KPI_DRILL_COLUMNS.purchaseTotal, rows: kpiDrillData.purchaseTotal || [] };
     case 'vendorOutstanding': return { columns: KPI_DRILL_COLUMNS.vendorOutstanding, rows: kpiDrillData.vendorOutstanding || [] };
     case 'overdueOutstanding': return { columns: KPI_DRILL_COLUMNS.overdueOutstanding, rows: kpiDrillData.overdueOutstanding || [] };
+    case 'materialsUsed': return { columns: KPI_DRILL_COLUMNS.materialsUsed, rows: kpiDrillData.materialsUsed || [] };
+    case 'ageingAll': return { columns: KPI_DRILL_COLUMNS.ageingAll, rows: kpiDrillData.ageingAll || [] };
+    case 'ageingOver90': return { columns: KPI_DRILL_COLUMNS.ageingOver90, rows: kpiDrillData.ageingOver90 || [] };
     default: return null;
   }
 }
@@ -1705,6 +2047,11 @@ function closeKpiDrill(){
   kpiDrillCurrent = null;
 }
 document.getElementById('kpiGridPurchase').addEventListener('click', (e)=>{
+  const tile = e.target.closest('.kpi');
+  if(!tile || !tile.dataset.drill) return;
+  openKpiDrill(tile, tile.dataset.drill);
+});
+document.getElementById('kpiGridAgeing').addEventListener('click', (e)=>{
   const tile = e.target.closest('.kpi');
   if(!tile || !tile.dataset.drill) return;
   openKpiDrill(tile, tile.dataset.drill);
