@@ -1759,6 +1759,18 @@ function fmtDateAny(v){
   if(!d) return (typeof v === 'string' && v.trim()) ? v : '—'; // an unparseable string is shown as-is rather than hidden behind '—'
   return d.toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
 }
+// TAT (turn-around-time) in whole days from a given date up to today — used by the Yet to Sign /
+// Yet to be Registered backlog drill-downs below to show how long each unit has been waiting.
+// Both dates are normalised to midnight first so the count is a clean day difference regardless of
+// what time of day "today" happens to be when the dashboard is opened. Returns null (shown as "—")
+// when the reference date itself can't be parsed, rather than a misleading 0 or NaN.
+function tatDaysSince(dateVal){
+  const d = parseDateAny(dateVal);
+  if(!d) return null;
+  const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const today = new Date(); const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.round((todayMidnight - start) / 86400000);
+}
 function monthKeyOf(dateVal){
   let d;
   if(dateVal instanceof Date) d = dateVal;
@@ -3134,8 +3146,18 @@ function renderAgreementPage(){
   const backlogYetToRegisterValue = backlogYetToRegister.reduce((a,r)=>a+(r.agreementValue||0),0);
   // Cached for the KPI drill-down modal — each tile below opens the exact unit list its number is built from.
   kpiDrillData.agreementBacklog = agreementBacklog;
-  kpiDrillData.yetToSign = backlogYetToSign;
-  kpiDrillData.yetToRegister = backlogYetToRegister;
+  // TAT (Days) — how long each unit has been waiting, counted from the most recent milestone BEFORE
+  // the one it's stuck on: Yet to Sign waits on the Agreement, so its clock runs from Booking Date.
+  // Yet to be Registered waits on Registration, which can only happen after the Agreement is signed,
+  // so its clock runs from Agreement Date once that's filled in — and falls back to Booking Date for
+  // the units in this same list that haven't even been signed yet (there's no later date to use).
+  // Sorted most-overdue-first so the oldest pending units surface at the top of each drill-down.
+  kpiDrillData.yetToSign = backlogYetToSign
+    .map(r=>({ ...r, tatDays: tatDaysSince(r.bookingDate) }))
+    .sort((a,b)=> (b.tatDays ?? -1) - (a.tatDays ?? -1));
+  kpiDrillData.yetToRegister = backlogYetToRegister
+    .map(r=>({ ...r, tatDays: tatDaysSince(r.agreementDate || r.bookingDate) }))
+    .sort((a,b)=> (b.tatDays ?? -1) - (a.tatDays ?? -1));
   const backlogCards = [
     {lbl:'Units Tracked', key:'agreementBacklog', val: fmtNum(backlogTotal), sub:`Units booked ${fmtNum(backlogBookedMatched)} and in abeyance ${fmtNum(backlogInAbeyance)} &middot; all-time for current Project`},
     {lbl:'Yet to Sign', key:'yetToSign', val: fmtNum(backlogYetToSign.length), sub: `${fmtINRCr(backlogYetToSignValue)} booking value &middot; current backlog, all-time`},
@@ -3981,6 +4003,30 @@ const KPI_DRILL_COLUMNS = {
     {key:'possessionDate', label:'Possession Date', align:'left'},
     {key:'unitStatus', label:'Unit Status', align:'left'},
   ],
+  // Yet to Sign — TAT (Days) counts from Booking Date (see the comment above its computation).
+  yetToSign: [
+    {key:'project', label:'Project', align:'left'},
+    {key:'subProject', label:'Sub Project', align:'left'},
+    {key:'unitNo', label:'Unit No', align:'left'},
+    {key:'customer', label:'Customer', align:'left'},
+    {key:'bookingDate', label:'Booking Date', align:'left'},
+    {key:'agreementValue', label:'Agreement Value', fmt:fmtINRCr},
+    {key:'unitStatus', label:'Unit Status', align:'left'},
+    {key:'tatDays', label:'TAT (Days)', fmt: v => (v===null||v===undefined) ? '—' : fmtNum(v)},
+  ],
+  // Yet to be Registered — TAT (Days) counts from Agreement Date once it's signed, else falls back
+  // to Booking Date for units that aren't even signed yet (see the comment above its computation).
+  yetToRegister: [
+    {key:'project', label:'Project', align:'left'},
+    {key:'subProject', label:'Sub Project', align:'left'},
+    {key:'unitNo', label:'Unit No', align:'left'},
+    {key:'customer', label:'Customer', align:'left'},
+    {key:'bookingDate', label:'Booking Date', align:'left'},
+    {key:'agreementDate', label:'Agreement Date', align:'left'},
+    {key:'agreementValue', label:'Agreement Value', fmt:fmtINRCr},
+    {key:'unitStatus', label:'Unit Status', align:'left'},
+    {key:'tatDays', label:'TAT (Days)', fmt: v => (v===null||v===undefined) ? '—' : fmtNum(v)},
+  ],
   collection: [
     {key:'project', label:'Project', align:'left'},
     {key:'subProject', label:'Sub Project', align:'left'},
@@ -4065,8 +4111,8 @@ function getKpiDrillConfig(key){
     case 'bookingBacklog': return { columns: KPI_DRILL_COLUMNS.booking, rows: kpiDrillData.bookingBacklog || [] };
     case 'bookingPeriod': return { columns: KPI_DRILL_COLUMNS.booking, rows: bookingData };
     case 'agreementBacklog': return { columns: KPI_DRILL_COLUMNS.agreement, rows: kpiDrillData.agreementBacklog || [] };
-    case 'yetToSign': return { columns: KPI_DRILL_COLUMNS.agreement, rows: kpiDrillData.yetToSign || [] };
-    case 'yetToRegister': return { columns: KPI_DRILL_COLUMNS.agreement, rows: kpiDrillData.yetToRegister || [] };
+    case 'yetToSign': return { columns: KPI_DRILL_COLUMNS.yetToSign, rows: kpiDrillData.yetToSign || [] };
+    case 'yetToRegister': return { columns: KPI_DRILL_COLUMNS.yetToRegister, rows: kpiDrillData.yetToRegister || [] };
     case 'agreementSigned': return { columns: KPI_DRILL_COLUMNS.agreement, rows: agreementSignedRows };
     case 'agreementRegistered': return { columns: KPI_DRILL_COLUMNS.agreement, rows: agreementRegisteredRows };
     case 'collectionTotal': return { columns: KPI_DRILL_COLUMNS.collection, rows: kpiDrillData.collectionTotal || [] };
