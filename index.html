@@ -2765,8 +2765,17 @@ function renderKPIs(){
   const displaySoldUnits = showGross ? t.soldUnits + genuineCancelledUnits : t.soldUnits;
   const periodTotalUnits = displaySoldUnits + t.availUnits + t.blockedUnits;
   const unitTypeCount = new Set(unitTypeWiseData.map(r=>r.unitType)).size;
+  // "Projects" used to be one combined count — split per request into Active (still has unsold
+  // stock, i.e. availUnits > 0) vs Completed (every unit sold, availUnits === 0). Projects with no
+  // units at all (totalUnits === 0, a data-quality edge case, same guard the old "with active
+  // stock" sub-text used) are excluded from both so the two counts add up to a meaningful total.
+  const activeProjectRows = masterData.filter(m=>m.totalUnits>0 && m.availUnits>0);
+  const completedProjectRows = masterData.filter(m=>m.totalUnits>0 && m.availUnits===0);
+  kpiDrillData.activeProjects = activeProjectRows;
+  kpiDrillData.completedProjects = completedProjectRows;
   const cards = [
-    {lbl:'Projects', key:'projects', val: t.projects, sub: `${masterData.filter(m=>m.totalUnits>0).length} with active stock`},
+    {lbl:'Active Projects', key:'activeProjects', val: fmtNum(activeProjectRows.length), sub: `${fmtNum(activeProjectRows.reduce((a,m)=>a+(m.availUnits||0),0))} unsold units remaining across these`},
+    {lbl:'Completed Projects', key:'completedProjects', val: fmtNum(completedProjectRows.length), sub: 'Fully sold &middot; no unsold units left'},
     {lbl:'Total Units', key:'projects', val: fmtNum(periodTotalUnits), sub: `<b class="pos">${fmtNum(displaySoldUnits)}</b> sold &middot; ${fmtNum(t.availUnits)} unsold`},
     {lbl:'Unit Types', key:'unitTypeWise', val: fmtNum(unitTypeCount), sub: 'Sold vs unsold by project &amp; unit type'},
   ];
@@ -2998,6 +3007,9 @@ function renderSoldPage(){
     {lbl:'Sold Units', key:'sold', val: fmtNum(displayUnits), sub: showGross ? `across ${masterData.filter(m=>m.soldUnits>0).length} projects, incl. cancellations` : `across ${masterData.filter(m=>m.soldUnits>0).length} projects`},
     {lbl:'Sales Value', key:'sold', val: fmtINRCr(displayValue), sub: soldValueSub},
     {lbl:'Sold Area', key:'sold', val: fmtNum(displayArea)+' sq.ft', sub: soldAreaSub},
+    // Mirrors the Unsold page's "Avg Rate (Unsold)" tile, same per-sq.ft-of-value math, just on the
+    // sold side — and moves with the same Booking Value toggle as Sales Value/Sold Area above it.
+    {lbl:'Avg Rate (Sold)', key:'sold', val: displayArea ? '₹'+Math.round(displayValue/displayArea).toLocaleString('en-IN') : '—', sub:'per sq.ft, sold stock'},
     // Only shown once the Customer Detail Report actually has the "TOTAL FLAT COST" column — older
     // uploads that predate it just don't get this tile, same pattern as In Abeyance/Total Cancellation.
     ...(hasTotalFlatCost ? [{lbl:'Total Booking Value including Govt Charges', key:'totalFlatCost', val: fmtINRCr(displayTotalFlatCostSum), sub: totalFlatCostSub}] : []),
@@ -3058,7 +3070,7 @@ function renderAvailablePage(){
     // has actually been uploaded — showing it against older data would just read as a permanent ₹0.
     ...(hasMSPData ? [{lbl:'Unsold (MSP)', key:'avail', val: fmtINRCr(t.availValueMSP), sub:'Unsold inventory at Minimum Selling Price'}] : []),
     {lbl:'Unsold Area', key:'avail', val: fmtNum(availArea)+' sq.ft', sub:'Saleable area unsold'},
-    {lbl:'Avg Rate', key:'avail', val: availArea ? '₹'+Math.round(t.availValue/availArea).toLocaleString('en-IN') : '—', sub:'per sq.ft, unsold stock (listed)'},
+    {lbl:'Avg Rate (Unsold)', key:'avail', val: availArea ? '₹'+Math.round(t.availValue/availArea).toLocaleString('en-IN') : '—', sub:'per sq.ft, unsold stock (listed)'},
   ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
@@ -3349,6 +3361,14 @@ function renderCollectionPage(){
   // doesn't inflate the figure.
   const hasCancellationReport = RAW.cancellationRecords.length > 0;
   const cancellationPeriodSub = periodActive ? 'in the selected period' : 'all-time';
+  // Unit Swap — the "ReBooking Cancellation" reason specifically. That reason is really a unit
+  // transfer (the same customer moving to a different unit, or a unit changing hands as part of one
+  // deal), not a genuine cancellation, which is exactly why it's excluded from Total Cancellation
+  // above — but it's still a real, trackable event worth its own count rather than disappearing
+  // entirely. Same Project + FY + Month + Booking Date basis as Total Cancellation.
+  const unitSwapRecords = filterFull(RAW.cancellationRecords.filter(r=>r.reason === 'ReBooking Cancellation'), 'bookingDate');
+  const unitSwapCount = unitSwapRecords.length;
+  const unitSwapValue = unitSwapRecords.reduce((a,r)=>a+r.unitValue,0);
   // Cached for the KPI drill-down modal. Outstanding Balance shows the same per-unit Debtor Ageing
   // Report rows as Net Due as per Stage when that report is uploaded (both figures are just different
   // sums off the same rows); otherwise it falls back to the project-level Sold-minus-Collected estimate.
@@ -3356,6 +3376,7 @@ function renderCollectionPage(){
   kpiDrillData.outstandingEstimate = outstandingByProject;
   kpiDrillData.inAbeyance = inAbeyanceRows;
   kpiDrillData.cancellations = filterFull(RAW.cancellationRecords.filter(r=>r.isGenuine), 'bookingDate');
+  kpiDrillData.unitSwap = unitSwapRecords;
   document.getElementById('kpiGridCollection').innerHTML = [
     {lbl:'Total Collected', key:'collectionTotal', val: fmtINRCr(totalCollected), sub: (periodActive ? 'Received in the selected period' : `${fmtNum(unitsRecorded)} units with collection recorded`) + ', including Govt charges and Registrations'},
     {lbl:'Net Due as per Stage', key:'outstanding', val: fmtINRCr(netDueAsPerStage), sub: debtorAgeingSub},
@@ -3365,6 +3386,7 @@ function renderCollectionPage(){
     ...(hasOutstandingReport ? [{lbl:'In Abeyance', key:'inAbeyance', val: fmtNum(inAbeyanceRows.length), sub: `${fmtINRCr(inAbeyanceTotal)} outstanding &middot; cancellation pending, not yet finalized`}] : []),
     // Only shown once the Customer Cancellation Report (file 7) is uploaded.
     ...(hasCancellationReport ? [
+      {lbl:'Unit Swap', key:'unitSwap', val: fmtNum(unitSwapCount), sub: `${fmtINRCr(unitSwapValue)} unit value &middot; ReBooking Cancellation (unit transfer), ${cancellationPeriodSub}`},
       {lbl:'Total Cancellation', key:'cancellations', val: fmtNum(genuineCancelledUnits), sub: `Genuine cancellations &middot; Customer Requested + Due to Non Payment, ${cancellationPeriodSub}`},
       {lbl:'Total Cancellation Value', key:'cancellations', val: fmtINRCr(genuineCancelledValue), sub: `Cancelled booking value &middot; same units as Total Cancellation, ${cancellationPeriodSub}`},
     ] : []),
@@ -3515,8 +3537,7 @@ function renderBookingPage(){
   // Avg Booking Value is a backlog figure — Project filter only, deliberately NOT scoped to Financial
   // Year / Month, same reasoning as the Agreement Register backlog tiles: it's "what's the average deal
   // size right now", not period activity, so it shouldn't go blank/skew wildly just because the selected
-  // month happened to have few or no new bookings. Months Covered stays period-scoped below it, since
-  // "how many months does the current filter span" is meaningless without a period.
+  // month happened to have few or no new bookings. ("Months Covered" tile removed per request.)
   const bookingBacklog = filterProjectOnly(RAW.bookingRecords);
   const backlogUnits = bookingBacklog.length;
   const backlogValue = bookingBacklog.reduce((a,r)=>a+r.bookingValue,0);
@@ -3528,7 +3549,6 @@ function renderBookingPage(){
   kpiDrillData.bookingBacklog = bookingBacklog; // cached for the KPI drill-down modal
   document.getElementById('kpiGridBookings').innerHTML = [
     {lbl:'Avg Booking Value', key:'bookingBacklog', val: fmtINRCr(backlogAvgValue), sub:'per unit booked &middot; all-time for current Project'},
-    {lbl:'Months Covered', key:'bookingPeriod', val: fmtNum(bookingMonthData.length), sub: bookingFYData.length ? `${bookingFYData[0].label} to ${bookingFYData[bookingFYData.length-1].label}` : ''},
   ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
@@ -4106,6 +4126,8 @@ const KPI_DRILL_COLUMNS = {
 function getKpiDrillConfig(key){
   switch(key){
     case 'projects': return { columns: KPI_DRILL_COLUMNS.projects, rows: masterData.filter(m=>m.totalUnits>0) };
+    case 'activeProjects': return { columns: KPI_DRILL_COLUMNS.projects, rows: kpiDrillData.activeProjects || [] };
+    case 'completedProjects': return { columns: KPI_DRILL_COLUMNS.projects, rows: kpiDrillData.completedProjects || [] };
     case 'sold': return { columns: KPI_DRILL_COLUMNS.stockUnit, rows: kpiDrillData.sold || [] };
     case 'avail': return { columns: KPI_DRILL_COLUMNS.stockUnitAvail, rows: kpiDrillData.avail || [] };
     case 'bookingBacklog': return { columns: KPI_DRILL_COLUMNS.booking, rows: kpiDrillData.bookingBacklog || [] };
@@ -4120,6 +4142,7 @@ function getKpiDrillConfig(key){
     case 'outstandingEstimate': return { columns: KPI_DRILL_COLUMNS.outstandingEstimate, rows: kpiDrillData.outstandingEstimate || [] };
     case 'inAbeyance': return { columns: KPI_DRILL_COLUMNS.outstanding, rows: kpiDrillData.inAbeyance || [] };
     case 'cancellations': return { columns: KPI_DRILL_COLUMNS.cancellation, rows: kpiDrillData.cancellations || [] };
+    case 'unitSwap': return { columns: KPI_DRILL_COLUMNS.cancellation, rows: kpiDrillData.unitSwap || [] };
     case 'totalFlatCost': return { columns: KPI_DRILL_COLUMNS.totalFlatCost, rows: kpiDrillData.totalFlatCost || [] };
     case 'allotmentGiven': return { columns: KPI_DRILL_COLUMNS.allotmentGiven, rows: kpiDrillData.allotmentGiven || [] };
     case 'possessionGiven': return { columns: KPI_DRILL_COLUMNS.possessionGiven, rows: kpiDrillData.possessionGiven || [] };
