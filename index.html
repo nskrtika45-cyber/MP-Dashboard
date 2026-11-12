@@ -1490,6 +1490,7 @@ let collectionPeriodByProject = {};  // same, broken down by project
 // function for where it's populated. Every entry always reflects whatever's currently on screen.
 let soldUnitData = [];
 let availUnitData = [];
+let holdUnitData = []; // Hold-only unit records, for the "On Hold" tile's own drill-down (availUnitData above is now Available+Hold combined)
 let agreementSignedRows = [];
 let agreementRegisteredRows = [];
 let kpiDrillData = {};
@@ -1796,7 +1797,7 @@ function parseStockSummary(wb){
     const subProj = r[1];
     if(subProj === null || subProj === '' || subProj === 'Total:') continue; // skip the combined total row — we sum our own from each sub-project row below, so a sub-project can be redirected to a different project without dragging the rest of its siblings along
     const finalProject = resolveProjectForSubProject(currentProject, subProj);
-    if(!stock[finalProject]) stock[finalProject] = {totalUnits:0, soldUnits:0, soldArea:0, availUnits:0, availArea:0, blockedUnits:0, blockedArea:0};
+    if(!stock[finalProject]) stock[finalProject] = {totalUnits:0, soldUnits:0, soldArea:0, availUnits:0, availArea:0, blockedUnits:0, blockedArea:0, holdUnits:0, holdArea:0};
     const s = stock[finalProject];
     s.totalUnits += r[2]||0; s.soldUnits += r[3]||0; s.soldArea += r[4]||0;
     s.availUnits += r[5]||0; s.availArea += r[6]||0;
@@ -1866,10 +1867,26 @@ function parseStockSummary(wb){
       // Rate is defined for their Project+Sub Project — fall back to RRR_RATES x Super Area instead of
       // showing an incorrect ₹0. Only applies to Available (unsold) stock; MSP is a pricing lever for
       // what's still on the market, so a Sold unit's genuinely-0 MSP is left as 0, not backfilled.
-      rec.amountMSP = (rawMSP > 0) ? rawMSP : (status === 'Available' ? rrrFallbackMSP(rawProj, rawSubProj, area) : 0);
+      rec.amountMSP = (rawMSP > 0) ? rawMSP : ((status === 'Available' || status === 'Hold') ? rrrFallbackMSP(rawProj, rawSubProj, area) : 0);
     }
     unitRecords.push(rec);
   }
+  // Hold ("reserved for later sale") is a newer unit status Sheet2's own pre-aggregated summary rows
+  // don't account for at all — Sheet2 predates this status, so its Total/Available/Sold columns
+  // silently omit every Hold unit, undercounting the project's true totals (confirmed: one sub-project
+  // showed Total=16/Available=2 from Sheet2 while Sheet1's real per-unit breakdown was Sold=14/
+  // Available=2/Hold=2, i.e. 18 real units). Sheet1's per-unit Status column is the only reliable
+  // source for Hold, so tally it from the unit records just built and fold it into the Sheet2-derived
+  // stock dict: Hold counts as unsold inventory (reserved, not yet sold), so it's added into
+  // totalUnits/availUnits/availArea (broadening "unsold/available" to include Hold, per request) AND
+  // kept as its own holdUnits/holdArea for a dedicated "On Hold" breakdown tile.
+  unitRecords.forEach(rec=>{
+    if(rec.status !== 'Hold') return;
+    if(!stock[rec.project]) stock[rec.project] = {totalUnits:0, soldUnits:0, soldArea:0, availUnits:0, availArea:0, blockedUnits:0, blockedArea:0, holdUnits:0, holdArea:0};
+    const s = stock[rec.project];
+    s.holdUnits += 1; s.holdArea += (rec.area||0);
+    s.totalUnits += 1; s.availUnits += 1; s.availArea += (rec.area||0);
+  });
   return {stock, unitRecords, hasMSPStockData: netAmountMSPColIdx !== undefined};
 }
 // Pure aggregator — callable with the full unit record set or a filtered subset.
@@ -1880,7 +1897,7 @@ function aggregateStockValue(unitRecords){
   const fyMap = {};
   const units = {}, area = {};
   unitRecords.forEach(rec=>{
-    if(!value[rec.project]) value[rec.project] = {soldValue:0, availValue:0, availValueMSP:0};
+    if(!value[rec.project]) value[rec.project] = {soldValue:0, availValue:0, availValueMSP:0, holdValue:0, holdValueMSP:0};
     units[rec.project] = (units[rec.project]||0) + 1;
     area[rec.project] = (area[rec.project]||0) + (rec.area||0);
     if(rec.status === 'Sold'){
@@ -1894,12 +1911,17 @@ function aggregateStockValue(unitRecords){
     }
     // NET AMOUNT (MSP) — Minimum Selling Price — is a per-unit field the newer Sale & Stock Summary
     // export adds alongside the existing Net Amount (Listed) figure. It's only meaningful for unsold
-    // (Available) stock — Sold units carry 0/blank MSP in the source report since MSP is a pricing
+    // (Available/Hold) stock — Sold units carry 0/blank MSP in the source report since MSP is a pricing
     // lever for what's still on the market, not a record of what a unit actually sold for. Older
     // uploads without this column leave amountMSP undefined on every record (see parseStockSummary),
     // so it sums to 0 here exactly like a genuinely-zero MSP would — the "Unsold (MSP)" tile is only
     // shown at all when RAW.hasMSPStockData says the column was actually present.
     else if(rec.status === 'Available'){ value[rec.project].availValue += rec.amount; value[rec.project].availValueMSP += (rec.amountMSP||0); }
+    // Hold ("reserved for later sale") kept in its own holdValue/holdValueMSP fields here — the caller
+    // (applyFiltersAndRender) is the one that decides to fold these into the combined "Unsold" figures
+    // (per request: unsold inventory should show Available + Hold together) while still exposing the
+    // raw Hold-only numbers for the dedicated "On Hold" tile.
+    else if(rec.status === 'Hold'){ value[rec.project].holdValue += rec.amount; value[rec.project].holdValueMSP += (rec.amountMSP||0); }
   });
   const fyData = Object.entries(fyMap)
     .map(([label,d])=>({label, value:d.value, units:d.units, sortKey:d.sortKey}))
@@ -2252,16 +2274,19 @@ function buildMasterTable(discount, stock, value){
   const allProjects = new Set([...Object.keys(stock), ...Object.keys(value), ...Object.keys(discount)]);
   const master = [];
   allProjects.forEach(proj=>{
-    const s = stock[proj] || {totalUnits:0,soldUnits:0,soldArea:0,availUnits:0,availArea:0,blockedUnits:0,blockedArea:0};
-    const v = value[proj] || {soldValue:0,availValue:0,availValueMSP:0};
+    const s = stock[proj] || {totalUnits:0,soldUnits:0,soldArea:0,availUnits:0,availArea:0,blockedUnits:0,blockedArea:0,holdUnits:0,holdArea:0};
+    const v = value[proj] || {soldValue:0,availValue:0,availValueMSP:0,holdValue:0,holdValueMSP:0};
     const d = discount[proj] || null;
     const totalArea = (s.soldArea||0)+(s.availArea||0)+(s.blockedArea||0);
     const totalValue = v.soldValue + v.availValue;
     master.push({
       project: proj,
       totalUnits: s.totalUnits, soldUnits: s.soldUnits, availUnits: s.availUnits, blockedUnits: s.blockedUnits,
+      holdUnits: s.holdUnits||0,
       totalArea, soldArea: s.soldArea, availArea: s.availArea, blockedArea: s.blockedArea,
+      holdArea: s.holdArea||0,
       soldValue: v.soldValue, availValue: v.availValue, availValueMSP: v.availValueMSP||0, totalValue,
+      holdValue: v.holdValue||0, holdValueMSP: v.holdValueMSP||0,
       avgSoldPrice: s.soldArea ? v.soldValue/s.soldArea : null,
       avgAvailPrice: s.availArea ? v.availValue/s.availArea : null,
       beforeDiscount: d ? d.before : null,
@@ -2421,12 +2446,18 @@ function applyFiltersAndRender(){
     return match !== undefined ? { ...r, amount: match } : r;
   });
   const availRecs = RAW.stockUnitRecords.filter(r=>r.status==='Available');
+  // Hold ("reserved for later sale") — per request, unsold inventory should show Available AND Hold
+  // units together, so holdFiltered is combined into availFiltered everywhere "Unsold" is computed
+  // below, while also staying available on its own (holdUnitData) for a dedicated "On Hold" tile.
+  const holdRecs = RAW.stockUnitRecords.filter(r=>r.status==='Hold');
   const soldFiltered = filterFull(soldRecs, 'bookingDate');           // respects Project + FY + Month
   const availFiltered = filterProjectOnly(availRecs);                 // snapshot — Project only
-  soldUnitData = soldFiltered; availUnitData = availFiltered;         // cached for the KPI drill-down modal
+  const holdFiltered = filterProjectOnly(holdRecs);                   // snapshot — Project only
+  const unsoldFiltered = availFiltered.concat(holdFiltered);          // "Unsold" = Available + Hold
+  soldUnitData = soldFiltered; availUnitData = unsoldFiltered; holdUnitData = holdFiltered; // cached for the KPI drill-down modal
   // Project x Unit Type breakdown (Plot, 2BHK, 3BHK, ...) — Sold count respects Project + FY + Month
-  // (same basis as soldFiltered above), Unsold stays a Project-only snapshot (same basis as
-  // availFiltered) since unsold stock has no transaction date to filter by.
+  // (same basis as soldFiltered above), Unsold (now Available + Hold) stays a Project-only snapshot
+  // (same basis as unsoldFiltered) since unsold stock has no transaction date to filter by.
   {
     const utMap = {};
     const utKey = (project, unitType) => project + '||' + (unitType && String(unitType).trim() ? String(unitType).trim() : 'Unspecified');
@@ -2435,7 +2466,7 @@ function applyFiltersAndRender(){
       if(!utMap[key]) utMap[key] = { project: r.project, unitType: (r.unitType && r.unitType.trim()) || 'Unspecified', sold: 0, unsold: 0 };
       utMap[key].sold += 1;
     });
-    availFiltered.forEach(r=>{
+    unsoldFiltered.forEach(r=>{
       const key = utKey(r.project, r.unitType);
       if(!utMap[key]) utMap[key] = { project: r.project, unitType: (r.unitType && r.unitType.trim()) || 'Unspecified', sold: 0, unsold: 0 };
       utMap[key].unsold += 1;
@@ -2446,10 +2477,11 @@ function applyFiltersAndRender(){
   hasMSPData = RAW.stockUnitRecords.some(r => r.amountMSP !== undefined);
   const { value: valueSold, units: soldUnitCounts, area: soldAreaSums } = aggregateStockValue(soldFiltered);
   const { value: valueAvail } = aggregateStockValue(availFiltered);
-  // Unsold (Available) broken down by physical location and by property type (Apartment/Plot) —
+  const { value: valueHold } = aggregateStockValue(holdFiltered);
+  // Unsold (Available + Hold) broken down by physical location and by property type (Apartment/Plot) —
   // both snapshot views, Project-filter only, matching Available's own no-date-filter behaviour.
   const locMap = {}, propMap = {};
-  availFiltered.forEach(r=>{
+  unsoldFiltered.forEach(r=>{
     const loc = getLocation(r.project);
     if(!locMap[loc]) locMap[loc] = {units:0, value:0, area:0};
     locMap[loc].units += 1; locMap[loc].value += r.amount; locMap[loc].area += (r.area||0);
@@ -2460,11 +2492,16 @@ function applyFiltersAndRender(){
   locationWiseData = Object.entries(locMap).map(([location,d])=>({location, ...d})).sort((a,b)=>b.value-a.value);
   propertyWiseData = Object.entries(propMap).map(([property,d])=>({property, ...d})).sort((a,b)=>b.value-a.value);
   const value = {};
-  new Set([...Object.keys(valueSold), ...Object.keys(valueAvail)]).forEach(p=>{
+  new Set([...Object.keys(valueSold), ...Object.keys(valueAvail), ...Object.keys(valueHold)]).forEach(p=>{
+    const availOnlyValue = (valueAvail[p]&&valueAvail[p].availValue)||0;
+    const availOnlyMSP = (valueAvail[p]&&valueAvail[p].availValueMSP)||0;
+    const holdValue = (valueHold[p]&&valueHold[p].holdValue)||0;
+    const holdValueMSP = (valueHold[p]&&valueHold[p].holdValueMSP)||0;
     value[p] = {
       soldValue: (valueSold[p]&&valueSold[p].soldValue)||0,
-      availValue: (valueAvail[p]&&valueAvail[p].availValue)||0,
-      availValueMSP: (valueAvail[p]&&valueAvail[p].availValueMSP)||0,
+      availValue: availOnlyValue + holdValue,       // "Unsold" = Available + Hold combined, per request
+      availValueMSP: availOnlyMSP + holdValueMSP,
+      holdValue, holdValueMSP,                       // raw Hold-only figures for the dedicated "On Hold" tile
     };
   });
   fyData = aggregateStockValue(filterProjectOnly(soldRecs)).fyData;   // trend chart — Project only, full history
@@ -2478,7 +2515,7 @@ function applyFiltersAndRender(){
     // Available/Blocked stay as the Sheet2 snapshot since unsold stock has no transaction date.
     const merged = {};
     new Set([...Object.keys(stock), ...Object.keys(soldUnitCounts)]).forEach(p=>{
-      const s = stock[p] || {totalUnits:0,soldUnits:0,soldArea:0,availUnits:0,availArea:0,blockedUnits:0,blockedArea:0};
+      const s = stock[p] || {totalUnits:0,soldUnits:0,soldArea:0,availUnits:0,availArea:0,blockedUnits:0,blockedArea:0,holdUnits:0,holdArea:0};
       merged[p] = { ...s, soldUnits: soldUnitCounts[p]||0, soldArea: soldAreaSums[p]||0 };
     });
     stock = merged;
@@ -2605,8 +2642,8 @@ function applyFiltersAndRender(){
     if(!masterByProjectM[project]){
       // A project with Agreement/Collection/Outstanding activity but no Stock Summary / Customer
       // Details entry at all (rare) — add its own row so those figures aren't silently dropped.
-      const row = { project, totalUnits:0, soldUnits:0, availUnits:0, blockedUnits:0, totalArea:0, soldArea:0, availArea:0, blockedArea:0,
-        soldValue:0, availValue:0, totalValue:0, avgSoldPrice:null, avgAvailPrice:null,
+      const row = { project, totalUnits:0, soldUnits:0, availUnits:0, blockedUnits:0, holdUnits:0, totalArea:0, soldArea:0, availArea:0, blockedArea:0, holdArea:0,
+        soldValue:0, availValue:0, holdValue:0, holdValueMSP:0, totalValue:0, avgSoldPrice:null, avgAvailPrice:null,
         beforeDiscount:null, afterDiscount:null, discountValue:null, discountPct:null, cancelledUnits:0,
         discountActiveUnits:0, cancelBefore:0, cancelAfter:0, cancelDiscountValue:0 };
       masterData.push(row);
@@ -2737,17 +2774,21 @@ function grandTotals(){
     acc.soldUnits += m.soldUnits||0;
     acc.availUnits += m.availUnits||0;
     acc.blockedUnits += m.blockedUnits||0;
+    acc.holdUnits += m.holdUnits||0;
     acc.totalArea += m.totalArea||0;
     acc.soldArea += m.soldArea||0;
     acc.availArea += m.availArea||0;
+    acc.holdArea += m.holdArea||0;
     acc.soldValue += m.soldValue||0;
     acc.availValue += m.availValue||0;
     acc.availValueMSP += m.availValueMSP||0;
+    acc.holdValue += m.holdValue||0;
+    acc.holdValueMSP += m.holdValueMSP||0;
     acc.totalValue += m.totalValue||0;
     acc.cancelledUnits += m.cancelledUnits||0;
     if(m.beforeDiscount !== null){ acc.beforeDiscount += m.beforeDiscount; acc.afterDiscount += m.afterDiscount; acc.activeBookedUnits += (m.discountActiveUnits||0); }
     return acc;
-  },{projects:0,totalUnits:0,soldUnits:0,availUnits:0,blockedUnits:0,totalArea:0,soldArea:0,availArea:0,soldValue:0,availValue:0,availValueMSP:0,totalValue:0,beforeDiscount:0,afterDiscount:0,cancelledUnits:0,activeBookedUnits:0});
+  },{projects:0,totalUnits:0,soldUnits:0,availUnits:0,blockedUnits:0,holdUnits:0,totalArea:0,soldArea:0,availArea:0,holdArea:0,soldValue:0,availValue:0,availValueMSP:0,holdValue:0,holdValueMSP:0,totalValue:0,beforeDiscount:0,afterDiscount:0,cancelledUnits:0,activeBookedUnits:0});
 }
 function renderKPIs(){
   const t = grandTotals();
@@ -3062,15 +3103,23 @@ function renderSoldPage(){
 function renderAvailablePage(){
   const t = grandTotals();
   const availArea = masterData.reduce((a,m)=>a+(m.availArea||0),0);
-  kpiDrillData.avail = availUnitData; // cached for the KPI drill-down modal
+  // "Unsold" now means Available + Hold together (per request) — t.availUnits/availValue/availArea
+  // already carry Hold folded in (see parseStockSummary/applyFiltersAndRender), and availUnitData is
+  // the combined Available+Hold record set. The plain-Available-only count is just availUnits-holdUnits.
+  const availOnlyUnits = t.availUnits - t.holdUnits;
+  kpiDrillData.avail = availUnitData; // cached for the KPI drill-down modal (Available + Hold combined)
+  kpiDrillData.hold = holdUnitData;   // Hold-only, for the dedicated "On Hold" tile below
   document.getElementById('kpiGridAvail').innerHTML = [
-    {lbl:'Unsold Units', key:'avail', val: fmtNum(t.availUnits), sub:`across ${masterData.filter(m=>m.availUnits>0).length} projects`},
-    {lbl:'Unsold (Listed)', key:'avail', val: fmtINRCr(t.availValue), sub:'Unsold inventory at listed price'},
+    {lbl:'Unsold Units', key:'avail', val: fmtNum(t.availUnits), sub:`across ${masterData.filter(m=>m.availUnits>0).length} projects &middot; incl. ${fmtNum(t.holdUnits)} on hold`},
+    {lbl:'Unsold (Listed)', key:'avail', val: fmtINRCr(t.availValue), sub:'Unsold inventory at listed price (Available + Hold)'},
     // "Unsold (MSP)" only appears once a Sale & Stock Summary report with the 'NET AMOUNT (MSP)' column
     // has actually been uploaded — showing it against older data would just read as a permanent ₹0.
-    ...(hasMSPData ? [{lbl:'Unsold (MSP)', key:'avail', val: fmtINRCr(t.availValueMSP), sub:'Unsold inventory at Minimum Selling Price'}] : []),
-    {lbl:'Unsold Area', key:'avail', val: fmtNum(availArea)+' sq.ft', sub:'Saleable area unsold'},
+    ...(hasMSPData ? [{lbl:'Unsold (MSP)', key:'avail', val: fmtINRCr(t.availValueMSP), sub:'Unsold inventory at Minimum Selling Price (Available + Hold)'}] : []),
+    {lbl:'Unsold Area', key:'avail', val: fmtNum(availArea)+' sq.ft', sub:'Saleable area unsold (Available + Hold)'},
     {lbl:'Avg Rate (Unsold)', key:'avail', val: availArea ? '₹'+Math.round(t.availValue/availArea).toLocaleString('en-IN') : '—', sub:'per sq.ft, unsold stock (listed)'},
+    // New: splits the combined Unsold figure above back out into plain-Available vs on-Hold, so it's
+    // clear how many of the unsold units are actually available to sell right now vs reserved.
+    {lbl:'On Hold', key:'hold', val: fmtNum(t.holdUnits), sub: `${fmtNum(availOnlyUnits)} still genuinely Available &middot; ${fmtINRCr(t.holdValue)} hold value (listed)`},
   ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
   const gold = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim();
@@ -3777,6 +3826,7 @@ const columns = [
   {key:'totalUnits', label:'Total Units', fmt:fmtNum},
   {key:'soldUnits', label:'Sold', fmt:fmtNum},
   {key:'availUnits', label:'Unsold', fmt:fmtNum},
+  {key:'holdUnits', label:'On Hold', fmt:fmtNum},
   {key:'blockedUnits', label:'Blocked', fmt:fmtNum},
   {key:'totalArea', label:'Total Area (sq.ft)', fmt:fmtNum},
   {key:'soldArea', label:'Sold Area (sq.ft)', fmt:fmtNum},
@@ -3830,20 +3880,21 @@ function renderTable(){
   }).join('');
   const t = rows.reduce((acc,m)=>{
     acc.totalUnits+=m.totalUnits||0; acc.soldUnits+=m.soldUnits||0; acc.availUnits+=m.availUnits||0; acc.blockedUnits+=m.blockedUnits||0;
+    acc.holdUnits+=m.holdUnits||0;
     acc.totalArea+=m.totalArea||0; acc.soldValue+=m.soldValue||0; acc.availValue+=m.availValue||0; acc.totalValue+=m.totalValue||0;
     acc.soldArea+=m.soldArea||0; acc.availArea+=m.availArea||0;
     acc.cancelledUnits+=m.cancelledUnits||0;
     acc.agreementUnits+=m.agreementUnits||0; acc.pendingRegn+=m.pendingRegn||0; acc.collected+=m.collected||0;
     acc.totalCost+=m.totalCost||0; acc.totalReceived+=m.totalReceived||0; acc.outstandingBalance+=m.outstandingBalance||0;
     return acc;
-  },{totalUnits:0,soldUnits:0,availUnits:0,blockedUnits:0,totalArea:0,soldValue:0,availValue:0,totalValue:0,soldArea:0,availArea:0,cancelledUnits:0,
+  },{totalUnits:0,soldUnits:0,availUnits:0,blockedUnits:0,holdUnits:0,totalArea:0,soldValue:0,availValue:0,totalValue:0,soldArea:0,availArea:0,cancelledUnits:0,
      agreementUnits:0,pendingRegn:0,collected:0,totalCost:0,totalReceived:0,outstandingBalance:0});
   const avgSoldPriceAll = t.soldArea ? t.soldValue/t.soldArea : null;
   const avgAvailPriceAll = t.availArea ? t.availValue/t.availArea : null;
   const outstandingPctAll = t.totalCost ? (t.outstandingBalance/t.totalCost*100) : null;
   document.getElementById('tfootRow').innerHTML = `
     <td class="proj">Total (${rows.length} projects)</td>
-    <td>${fmtNum(t.totalUnits)}</td><td>${fmtNum(t.soldUnits)}</td><td>${fmtNum(t.availUnits)}</td><td>${fmtNum(t.blockedUnits)}</td>
+    <td>${fmtNum(t.totalUnits)}</td><td>${fmtNum(t.soldUnits)}</td><td>${fmtNum(t.availUnits)}</td><td>${fmtNum(t.holdUnits)}</td><td>${fmtNum(t.blockedUnits)}</td>
     <td>${fmtNum(t.totalArea)}</td><td>${fmtNum(t.soldArea)}</td><td>${fmtNum(t.availArea)}</td>
     <td>${fmtINRCr(t.soldValue)}</td><td>${fmtINRCr(t.availValue)}</td><td>${fmtINRCr(t.totalValue)}</td>
     <td>${avgSoldPriceAll===null?'—':'₹'+Math.round(avgSoldPriceAll).toLocaleString('en-IN')}</td>
@@ -3872,9 +3923,9 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
   // 1. Project Summary (every project's Sold/Unsold/Blocked/Value/Discount/Cancellation figures)
   const exportRows = masterData.map(m=>({
     'Project': m.project,
-    'Total Units': m.totalUnits, 'Sold Units': m.soldUnits, 'Unsold Units': m.availUnits, 'Blocked Units': m.blockedUnits,
-    'Total Area (sq.ft)': m.totalArea, 'Sold Area': m.soldArea, 'Unsold Area': m.availArea, 'Blocked Area': m.blockedArea,
-    'Sold Value (₹)': m.soldValue, 'Unsold Value - Listed (₹)': m.availValue, 'Unsold Value - MSP (₹)': hasMSPData ? m.availValueMSP : null, 'Total Value (₹)': m.totalValue,
+    'Total Units': m.totalUnits, 'Sold Units': m.soldUnits, 'Unsold Units (Avail+Hold)': m.availUnits, 'On Hold Units': m.holdUnits||0, 'Blocked Units': m.blockedUnits,
+    'Total Area (sq.ft)': m.totalArea, 'Sold Area': m.soldArea, 'Unsold Area (Avail+Hold)': m.availArea, 'On Hold Area': m.holdArea||0, 'Blocked Area': m.blockedArea,
+    'Sold Value (₹)': m.soldValue, 'Unsold Value - Listed (₹) (Avail+Hold)': m.availValue, 'On Hold Value - Listed (₹)': m.holdValue||0, 'Unsold Value - MSP (₹)': hasMSPData ? m.availValueMSP : null, 'Total Value (₹)': m.totalValue,
     'Before Discount (₹)': m.beforeDiscount, 'After Discount (₹)': m.afterDiscount, 'Discount (₹)': m.discountValue, 'Discount %': m.discountPct===null?null:Number(m.discountPct.toFixed(2)),
     'Cancelled Bookings': m.cancelledUnits,
   }));
@@ -3988,10 +4039,10 @@ const KPI_DRILL_COLUMNS = {
     {key:'amount', label:'Amount', fmt:fmtINRCr},
     {key:'status', label:'Status', align:'left'},
   ],
-  stockUnitAvail: [ // Unsold (Units/Listed/MSP/Area/Avg Rate) tiles — adds the MSP figure alongside the
-    // Listed amount so a single click-through shows both prices for every unsold unit at once. Older
-    // uploads without the MSP column just render '—' / a blank export cell here, same as any other
-    // genuinely-absent optional field.
+  stockUnitAvail: [ // Unsold (Units/Listed/MSP/Area/Avg Rate) AND On Hold tiles — adds the MSP figure
+    // alongside the Listed amount so a single click-through shows both prices for every unsold/hold
+    // unit at once. Older uploads without the MSP column just render '—' / a blank export cell here,
+    // same as any other genuinely-absent optional field.
     {key:'project', label:'Project', align:'left'},
     {key:'subProject', label:'Sub Project', align:'left'},
     {key:'unitNo', label:'Unit No', align:'left'},
@@ -4130,6 +4181,7 @@ function getKpiDrillConfig(key){
     case 'completedProjects': return { columns: KPI_DRILL_COLUMNS.projects, rows: kpiDrillData.completedProjects || [] };
     case 'sold': return { columns: KPI_DRILL_COLUMNS.stockUnit, rows: kpiDrillData.sold || [] };
     case 'avail': return { columns: KPI_DRILL_COLUMNS.stockUnitAvail, rows: kpiDrillData.avail || [] };
+    case 'hold': return { columns: KPI_DRILL_COLUMNS.stockUnitAvail, rows: kpiDrillData.hold || [] };
     case 'bookingBacklog': return { columns: KPI_DRILL_COLUMNS.booking, rows: kpiDrillData.bookingBacklog || [] };
     case 'bookingPeriod': return { columns: KPI_DRILL_COLUMNS.booking, rows: bookingData };
     case 'agreementBacklog': return { columns: KPI_DRILL_COLUMNS.agreement, rows: kpiDrillData.agreementBacklog || [] };
