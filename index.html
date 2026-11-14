@@ -1513,6 +1513,14 @@ let collectionPeriodByProject = {};  // same, broken down by project
 let soldUnitData = [];
 let availUnitData = [];
 let holdUnitData = []; // Hold-only unit records, for the "On Hold" tile's own drill-down (availUnitData above is now Available+Hold combined)
+// Enquiry Source / Source Sub Type lookup (Project+SubProject+UnitNo -> {sourceType, sourceSubType}),
+// built fresh in applyFiltersAndRender() from the Customer Details Report and read by withSource()
+// below — top-level globals so renderCollectionPage() (a separate top-level function) can see them too.
+let sourceByUnit = {};
+function withSource(r){
+  const match = sourceByUnit[r.project+'|'+(r.subProject||'').trim().toLowerCase()+'|'+String(r.unitNo).trim()];
+  return { ...r, sourceType: (match && match.sourceType) || '', sourceSubType: (match && match.sourceSubType) || '' };
+}
 let agreementSignedRows = [];
 let agreementRegisteredRows = [];
 let kpiDrillData = {};
@@ -2475,16 +2483,14 @@ function applyFiltersAndRender(){
   // Detail Report doesn't), so match them onto cancelled units the same way Booking Report values are
   // matched onto Sold units above: by Project + Sub Project + Unit No. Recomputed fresh every render
   // pass (not baked in at parse time) so it works identically right after upload and after a published
-  // dashboard is reloaded from Firestore.
-  const sourceByUnit = {};
+  // dashboard is reloaded from Firestore. sourceByUnit is a top-level global (see withSource() below) —
+  // renderCollectionPage(), which actually applies it to the cancellation drill-down rows, is a separate
+  // top-level function from this one and can't see a plain local const declared in here.
+  sourceByUnit = {};
   RAW.customerRecords.forEach(r=>{
     if(!r.sourceType && !r.sourceSubType) return;
     sourceByUnit[r.project+'|'+(r.subProject||'').trim().toLowerCase()+'|'+String(r.unitNo).trim()] = { sourceType: r.sourceType||'', sourceSubType: r.sourceSubType||'' };
   });
-  const withSource = r => {
-    const match = sourceByUnit[r.project+'|'+(r.subProject||'').trim().toLowerCase()+'|'+String(r.unitNo).trim()];
-    return { ...r, sourceType: (match && match.sourceType) || '', sourceSubType: (match && match.sourceSubType) || '' };
-  };
   // ---- Sold-side vs Available-side of Stock Summary Sheet1 ----
   const soldRecs = RAW.stockUnitRecords.filter(r=>r.status==='Sold').map(r=>{
     const match = bookingValueByUnit[r.project+'|'+(r.subProject||'').trim().toLowerCase()+'|'+String(r.unitNo).trim()];
@@ -2939,8 +2945,13 @@ function renderCharts(){
   const teal = getComputedStyle(document.documentElement).getPropertyValue('--teal').trim();
   const brick = getComputedStyle(document.documentElement).getPropertyValue('--brick').trim();
   const muted = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim();
-  // 1. Overall stock status donut
+  // 1. Overall stock status donut — Available and Hold are broken out as their own slices here (rather
+  // than shown as one combined "Unsold" wedge) since Hold units are reserved, not actually on the
+  // market right now, so seeing the split at a glance is more useful than a single blended number.
+  // t.availUnits already has Hold folded into it (see parseStockSummary), so the plain-Available slice
+  // is that total minus Hold — the two slices still add up to the same "Unsold" figure shown elsewhere.
   const t = grandTotals();
+  const availOnlyUnitsDonut = t.availUnits - t.holdUnits;
   destroyChart('donut');
   if(t.soldUnits + t.availUnits + t.blockedUnits === 0){
     chartEmptyMessage('chartStockDonut', 'No stock data for the current filter.');
@@ -2948,7 +2959,7 @@ function renderCharts(){
   chartClearEmptyMessage('chartStockDonut');
   charts.donut = new Chart(document.getElementById('chartStockDonut'), {
     type:'doughnut',
-    data:{ labels:['Sold','Unsold','Blocked'], datasets:[{ data:[t.soldUnits,t.availUnits,t.blockedUnits], backgroundColor:[teal,gold,brick], borderWidth:2, borderColor:'#fff' }] },
+    data:{ labels:['Sold','Available','Hold','Blocked'], datasets:[{ data:[t.soldUnits,availOnlyUnitsDonut,t.holdUnits,t.blockedUnits], backgroundColor:[teal,gold,muted,brick], borderWidth:2, borderColor:'#fff' }] },
     options:{
       responsive:true, maintainAspectRatio:false,
       plugins:{
