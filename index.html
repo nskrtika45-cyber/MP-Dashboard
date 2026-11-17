@@ -4074,9 +4074,14 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
 // the same Sold unit rows, just emphasising a different sum) — see getKpiDrillConfig for which key each
 // tile's data-drill attribute maps to, and each render*Page() function above for where kpiDrillData /
 // agreementSignedRows / agreementRegisteredRows are kept current with whatever's on screen.
+// Location — derived from Project via getLocation(), the same mapping the "Unsold — Location Wise"
+// chart already uses, rather than stored on every single record. Added to every drill-down table
+// below via `compute`, which openKpiDrill()/the Download Excel handler both call in place of a plain
+// r[c.key] lookup, right after Project in each column list.
 const KPI_DRILL_COLUMNS = {
   projects: [
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'totalUnits', label:'Total Units', fmt:fmtNum},
     {key:'soldUnits', label:'Sold Units', fmt:fmtNum},
     {key:'availUnits', label:'Unsold Units', fmt:fmtNum},
@@ -4087,6 +4092,7 @@ const KPI_DRILL_COLUMNS = {
   ],
   stockUnit: [ // Sold (Units/Value/Area) tiles
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'subProject', label:'Sub Project', align:'left'},
     {key:'unitNo', label:'Unit No', align:'left'},
     {key:'unitType', label:'Unit Type', align:'left'},
@@ -4100,6 +4106,7 @@ const KPI_DRILL_COLUMNS = {
     // unit at once. Older uploads without the MSP column just render '—' / a blank export cell here,
     // same as any other genuinely-absent optional field.
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'subProject', label:'Sub Project', align:'left'},
     {key:'unitNo', label:'Unit No', align:'left'},
     {key:'unitType', label:'Unit Type', align:'left'},
@@ -4109,6 +4116,7 @@ const KPI_DRILL_COLUMNS = {
   ],
   booking: [
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'subProject', label:'Sub Project', align:'left'},
     {key:'unitNo', label:'Unit No', align:'left'},
     {key:'customer', label:'Customer', align:'left'},
@@ -4119,6 +4127,7 @@ const KPI_DRILL_COLUMNS = {
   ],
   agreement: [
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'subProject', label:'Sub Project', align:'left'},
     {key:'unitNo', label:'Unit No', align:'left'},
     {key:'customer', label:'Customer', align:'left'},
@@ -4133,6 +4142,7 @@ const KPI_DRILL_COLUMNS = {
   // Yet to Sign — TAT (Days) counts from Booking Date (see the comment above its computation).
   yetToSign: [
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'subProject', label:'Sub Project', align:'left'},
     {key:'unitNo', label:'Unit No', align:'left'},
     {key:'customer', label:'Customer', align:'left'},
@@ -4145,6 +4155,7 @@ const KPI_DRILL_COLUMNS = {
   // to Booking Date for units that aren't even signed yet (see the comment above its computation).
   yetToRegister: [
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'subProject', label:'Sub Project', align:'left'},
     {key:'unitNo', label:'Unit No', align:'left'},
     {key:'customer', label:'Customer', align:'left'},
@@ -4156,6 +4167,7 @@ const KPI_DRILL_COLUMNS = {
   ],
   collection: [
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'subProject', label:'Sub Project', align:'left'},
     {key:'unitNo', label:'Unit No', align:'left'},
     {key:'customer', label:'Customer', align:'left'},
@@ -4163,6 +4175,7 @@ const KPI_DRILL_COLUMNS = {
   ],
   outstanding: [
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'subProject', label:'Sub Project', align:'left'},
     {key:'unitNo', label:'Unit No', align:'left'},
     {key:'customer', label:'Customer', align:'left'},
@@ -4175,12 +4188,14 @@ const KPI_DRILL_COLUMNS = {
   ],
   outstandingEstimate: [
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'soldValue', label:'Sold Value', fmt:fmtINRCr},
     {key:'collected', label:'Collected', fmt:fmtINRCr},
     {key:'outstanding', label:'Outstanding (Estimated)', fmt:fmtINRCr},
   ],
   unitTypeWise: [
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'unitType', label:'Unit Type', align:'left'},
     {key:'sold', label:'Sold', fmt:fmtNum},
     {key:'unsold', label:'Unsold', fmt:fmtNum},
@@ -4188,6 +4203,7 @@ const KPI_DRILL_COLUMNS = {
   ],
   totalFlatCost: [ // Total Booking Value including Govt Charges tile
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'unitNo', label:'Unit No', align:'left'},
     {key:'bookingDate', label:'Booking Date', align:'left'},
     {key:'area', label:'Area (sq.ft)', fmt:fmtNum},
@@ -4197,6 +4213,7 @@ const KPI_DRILL_COLUMNS = {
   ],
   allotmentGiven: [ // Total Allotment Given tile
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'unitNo', label:'Unit No', align:'left'},
     {key:'bookingDate', label:'Booking Date', align:'left'},
     {key:'allotmentDate', label:'Allotment Date', align:'left'},
@@ -4205,6 +4222,7 @@ const KPI_DRILL_COLUMNS = {
   ],
   possessionGiven: [ // Total Possession Given tile
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'unitNo', label:'Unit No', align:'left'},
     {key:'bookingDate', label:'Booking Date', align:'left'},
     {key:'possessionDate', label:'Posession Date', align:'left'},
@@ -4213,6 +4231,7 @@ const KPI_DRILL_COLUMNS = {
   ],
   deedHandover: [ // Total Deed Handover tile
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'unitNo', label:'Unit No', align:'left'},
     {key:'bookingDate', label:'Booking Date', align:'left'},
     {key:'deedHandoverDate', label:'Deed Handed Over Date', align:'left'},
@@ -4221,6 +4240,7 @@ const KPI_DRILL_COLUMNS = {
   ],
   cancellation: [ // Total Cancellation / Total Cancellation Value / Unit Swap tiles
     {key:'project', label:'Project', align:'left'},
+    {key:'location', label:'Location', align:'left', compute: r => getLocation(r.project)},
     {key:'subProject', label:'Sub Project', align:'left'},
     {key:'unitNo', label:'Unit No', align:'left'},
     {key:'customer', label:'Customer', align:'left'},
@@ -4278,7 +4298,9 @@ function openKpiDrill(tileEl, key){
   document.getElementById('kpiDrillThead').innerHTML = config.columns.map(c=>`<th style="text-align:${c.align||'right'}">${c.label}</th>`).join('');
   document.getElementById('kpiDrillTbody').innerHTML = config.rows.length
     ? config.rows.map(r=>'<tr>'+config.columns.map(c=>{
-        const v = r[c.key];
+        // compute(r) is for columns whose value isn't a plain field on the row, e.g. Location, which
+        // is derived from the row's project rather than stored on every single record.
+        const v = c.compute ? c.compute(r) : r[c.key];
         const display = c.fmt ? c.fmt(v) : (v===null||v===undefined||v===''?'—':v);
         return `<td style="text-align:${c.align||'right'}">${display}</td>`;
       }).join('')+'</tr>').join('')
@@ -4304,7 +4326,7 @@ document.getElementById('kpiDrillDownload').addEventListener('click', ()=>{
   const { title, columns, rows } = kpiDrillCurrent;
   const exportRows = rows.map(r=>{
     const o = {};
-    columns.forEach(c=>{ const v = r[c.key]; o[c.label] = (v === undefined || v === null) ? '' : v; });
+    columns.forEach(c=>{ const v = c.compute ? c.compute(r) : r[c.key]; o[c.label] = (v === undefined || v === null) ? '' : v; });
     return o;
   });
   const wb = XLSX.utils.book_new();
