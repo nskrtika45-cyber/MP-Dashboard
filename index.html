@@ -502,8 +502,11 @@
     <div class="hero-split" id="heroSplit"></div>
     <div class="filter-bar">
       <div class="filter-field">
-        <label for="filterProject">Project</label>
-        <select id="filterProject"><option value="">All Projects</option></select>
+        <label id="filterProjectLabel">Project</label>
+        <div class="multiselect" id="filterProjectWrap">
+          <button type="button" class="multiselect-btn" id="filterProjectBtn" aria-labelledby="filterProjectLabel">All Projects</button>
+          <div class="multiselect-panel" id="filterProjectPanel"></div>
+        </div>
       </div>
       <div class="filter-field">
         <label id="filterFYLabel">Financial Year</label>
@@ -1202,7 +1205,7 @@ async function tryLoadPublishedData(){
     RAW = newRAW;
     updateSectionVisibility();
     lastPublished = { at: meta.generatedAt, files: meta.sourceFiles || [] };
-    filterState = { project:'', fy:[], month:[] };
+    filterState = { project:[], fy:[], month:[] };
     populateFilterOptions();
     applyFiltersAndRender();
     updateLastUpdatedBadge();
@@ -1450,10 +1453,11 @@ let RAW = {
   outstandingRecords: [],      // Debtor Ageing Report (Summary): project, unit, totalCost, dueAsOnDay, totalReceived, netDue, netReceivable (no dates — snapshot as-on-date)
   cancellationRecords: [],     // Customer Cancellation Report: project, bookingDate, unitValue, cancellationDate, reason
 };
-// fy/month are arrays — both Financial Year and Month support selecting more than one value at once
-// (see the multiselect widgets wired near the bottom of the file). An empty array means "All", same
-// as an empty string did before this became multi-select.
-let filterState = { project: '', fy: [], month: [] };
+// project/fy/month are all arrays — Project, Financial Year and Month all support selecting more than
+// one value at once (see the multiselect widgets wired near the bottom of the file). An empty array
+// means "All", same as an empty string did before Project became multi-select.
+let filterState = { project: [], fy: [], month: [] };
+let projectOptionsList = []; // [{value,label}] — current Project checkbox options, rebuilt by populateFilterOptions()
 let fyOptionsList = [];    // [{value,label}] — current Financial Year checkbox options, rebuilt by populateFilterOptions()
 let monthOptionsList = []; // [{value,label}] — current Month checkbox options, rebuilt by populateMonthOptions()
 // Derived / currently-displayed data — render functions read these exactly as before.
@@ -1465,6 +1469,11 @@ let collectionData = [];
 let collectionFYData = [];
 let outstandingData = [];
 let genuineCancelledUnits = 0, genuineCancelledValue = 0, genuineCancelledArea = 0;
+// Same genuine-cancellation definition as above, but filtered by Cancellation Date instead of Booking
+// Date — used only by the Collection page's Total Cancellation / Total Cancellation Value tiles (and
+// Unit Swap), which mean "cancelled IN this period", not "booked in this period and later cancelled"
+// (that's what the pair above is for, feeding the Sold Value gross/net toggle).
+let genuineCancelledUnitsByCancelDate = 0, genuineCancelledValueByCancelDate = 0;
 let hasTotalFlatCost = false;
 // Allotment / Possession / Deed Handover milestone tiles — each sourced from the Customer Detail
 // Report's own Allotment Date / Posession Date / Deed Handed Over Date columns (optional; absent on
@@ -1607,7 +1616,7 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
       RAW.cancellationRecords = [];
     }
     updateSectionVisibility();
-    filterState = { project: '', fy: [], month: [] };
+    filterState = { project: [], fy: [], month: [] };
     populateFilterOptions();
     applyFiltersAndRender();
     const fileNames = [file1Data.name, file2Data.name, file3Data && file3Data.name, file4Data && file4Data.name, file5Data && file5Data.name, file6Data && file6Data.name, file7Data && file7Data.name].filter(Boolean);
@@ -2348,7 +2357,7 @@ function buildMasterTable(discount, stock, value){
 // inventory (a live snapshot, not a transaction), the Collection unit table (Sheet6 has no dates),
 // or any "value by FY" trend chart (narrowing a trend chart to one FY would just leave one bar —
 // those stay Project-scoped so they still show the full multi-year trend).
-function matchesProject(rec, project){ return !project || rec.project === project; }
+function matchesProject(rec, project){ return !project || !project.length || project.includes(rec.project); }
 // Whether a Financial Year or Month filter is currently narrowing the data. Used by Project-wise
 // tables to hide rows with zero activity for the selected period — with no period selected, every
 // project belongs (it may just have zero sales ever); with a period selected, a project showing
@@ -2372,9 +2381,11 @@ function filterFull(records, dateField){
 function filterProjectOnly(records){
   return records.filter(r => matchesProject(r, filterState.project));
 }
-function filterStockDict(dict, project){
-  if(!project) return dict;
-  return dict[project] ? {[project]: dict[project]} : {};
+function filterStockDict(dict, projects){
+  if(!projects || !projects.length) return dict;
+  const out = {};
+  projects.forEach(p=>{ if(dict[p]) out[p] = dict[p]; });
+  return out;
 }
 // ---- Generic multi-select dropdown (Financial Year / Month filters) ----
 // A lightweight checkbox-panel widget: a button showing a summary label, and a floating panel of
@@ -2425,9 +2436,12 @@ function populateFilterOptions(){
   dateSources.forEach(([arr,field])=>{
     arr.forEach(r=>{ const fy = financialYearOf(r[field]); if(fy) fySet.set(fy.label, fy.sortKey); });
   });
-  const projSel = document.getElementById('filterProject');
   const sortedProjects = [...projects].sort();
-  projSel.innerHTML = '<option value="">All Projects</option>' + sortedProjects.map(p=>`<option value="${p}">${p}</option>`).join('');
+  projectOptionsList = sortedProjects.map(p=>({value:p, label:p}));
+  filterState.project = filterState.project.filter(v=>sortedProjects.includes(v)); // drop selections that no longer exist in the data
+  wireMultiSelectToggle('filterProjectWrap');
+  renderMultiSelectOptions('filterProjectPanel', projectOptionsList, filterState.project);
+  updateMultiSelectButtonLabel('filterProjectBtn', projectOptionsList, filterState.project, 'All Projects');
   const sortedFY = [...fySet.entries()].sort((a,b)=>a[1]-b[1]).map(e=>e[0]);
   fyOptionsList = sortedFY.map(f=>({value:f, label:f}));
   filterState.fy = filterState.fy.filter(v=>sortedFY.includes(v)); // drop selections that no longer exist in the data
@@ -2664,6 +2678,12 @@ function applyFiltersAndRender(){
   genuineCancelledUnits = genuineCancellations.length;
   genuineCancelledValue = genuineCancellations.reduce((a,r)=>a+r.unitValue, 0);
   genuineCancelledArea = genuineCancellations.reduce((a,r)=>a+(r.unitArea||0), 0);
+  // Same genuine cancellations, filtered by Cancellation Date instead — "N cancellations happened in
+  // the selected period", for the Collection page's Total Cancellation tiles (see the globals' own
+  // comment for why this needs to be separate from the pair just above).
+  const genuineCancellationsByCancelDate = filterFull(RAW.cancellationRecords.filter(r=>r.isGenuine), 'cancellationDate');
+  genuineCancelledUnitsByCancelDate = genuineCancellationsByCancelDate.length;
+  genuineCancelledValueByCancelDate = genuineCancellationsByCancelDate.reduce((a,r)=>a+r.unitValue, 0);
   // ---- Bookings — fully filterable ----
   bookingData = filterFull(RAW.bookingRecords, 'bookingDate');
   bookingFYData = aggregateBookingFY(filterProjectOnly(RAW.bookingRecords)); // trend — Project only
@@ -2722,7 +2742,7 @@ function applyFiltersAndRender(){
 }
 function renderFilterSummary(){
   const chips = [];
-  if(filterState.project) chips.push(filterState.project);
+  filterState.project.forEach(p=>chips.push(p));
   if(filterState.month.length){
     filterState.month.forEach(v=>{
       const opt = monthOptionsList.find(o=>o.value===v);
@@ -2754,8 +2774,12 @@ function deferHeavyRender(fn){
     try{ fn(); } finally { hideFilterBusy(); }
   }));
 }
-document.getElementById('filterProject').addEventListener('change', function(){
-  filterState.project = this.value;
+document.getElementById('filterProjectPanel').addEventListener('change', function(e){
+  if(e.target.type !== 'checkbox') return;
+  const val = e.target.value;
+  if(e.target.checked){ if(!filterState.project.includes(val)) filterState.project.push(val); }
+  else { filterState.project = filterState.project.filter(v=>v!==val); }
+  updateMultiSelectButtonLabel('filterProjectBtn', projectOptionsList, filterState.project, 'All Projects');
   deferHeavyRender(()=> applyFiltersAndRender());
 });
 document.getElementById('filterFYPanel').addEventListener('change', function(e){
@@ -2779,8 +2803,9 @@ document.addEventListener('click', ()=>{
   document.querySelectorAll('.multiselect.open').forEach(w=>w.classList.remove('open'));
 });
 document.getElementById('filterClear').addEventListener('click', function(){
-  filterState = { project:'', fy:[], month:[] };
-  document.getElementById('filterProject').value = '';
+  filterState = { project:[], fy:[], month:[] };
+  renderMultiSelectOptions('filterProjectPanel', projectOptionsList, filterState.project);
+  updateMultiSelectButtonLabel('filterProjectBtn', projectOptionsList, filterState.project, 'All Projects');
   renderMultiSelectOptions('filterFYPanel', fyOptionsList, filterState.fy);
   updateMultiSelectButtonLabel('filterFYBtn', fyOptionsList, filterState.fy, 'All Financial Years');
   deferHeavyRender(()=>{ populateMonthOptions(); applyFiltersAndRender(); });
@@ -3458,10 +3483,13 @@ function renderCollectionPage(){
   const netDueAsPerStage = hasOutstandingReport ? outstandingData.reduce((a,r)=>a+(r.netDue||0),0) : 0;
   const debtorAgeingSub = hasOutstandingReport ? 'Demands raised till date' : 'Upload Debtor Ageing Report (Summary)';
   // Total Cancellation (Count) / Total Cancellation Value — from the Customer Cancellation Report.
-  // Respects Project + FY + Month, filtered by the cancelled unit's own Booking Date — same basis, and
-  // literally the same underlying filtered set, as genuineCancelledUnits/genuineCancelledValue computed
-  // above (used for the Sold Value gross/net toggle) — reused directly here rather than recomputed, so
-  // the two can never drift apart. Counts genuine cancellations only (Customer Requested + Due to Non
+  // Respects Project + FY + Month, filtered by the cancelled unit's own CANCELLATION Date (not Booking
+  // Date) — "N cancellations happened in the selected period", which is what this tile is actually
+  // asking. A unit booked long before the selected period but cancelled during it still counts, and
+  // (just as important) a unit booked during the selected period but not cancelled until later does
+  // NOT count here — that forward-looking "gross Sold Value" reconciliation is a different question,
+  // answered separately by genuineCancelledUnits/genuineCancelledValue (Booking Date basis) feeding the
+  // Sold Value gross/net toggle. Counts genuine cancellations only (Customer Requested + Due to Non
   // Payment) — a ReBooking Cancellation (really a unit transfer) or an Other (data-entry mistake) row
   // doesn't inflate the figure.
   const hasCancellationReport = RAW.cancellationRecords.length > 0;
@@ -3470,8 +3498,8 @@ function renderCollectionPage(){
   // transfer (the same customer moving to a different unit, or a unit changing hands as part of one
   // deal), not a genuine cancellation, which is exactly why it's excluded from Total Cancellation
   // above — but it's still a real, trackable event worth its own count rather than disappearing
-  // entirely. Same Project + FY + Month + Booking Date basis as Total Cancellation.
-  const unitSwapRecords = filterFull(RAW.cancellationRecords.filter(r=>r.reason === 'ReBooking Cancellation'), 'bookingDate');
+  // entirely. Same Project + FY + Month + Cancellation Date basis as Total Cancellation.
+  const unitSwapRecords = filterFull(RAW.cancellationRecords.filter(r=>r.reason === 'ReBooking Cancellation'), 'cancellationDate');
   const unitSwapCount = unitSwapRecords.length;
   const unitSwapValue = unitSwapRecords.reduce((a,r)=>a+r.unitValue,0);
   // Cached for the KPI drill-down modal. Outstanding Balance shows the same per-unit Debtor Ageing
@@ -3480,7 +3508,7 @@ function renderCollectionPage(){
   kpiDrillData.collectionTotal = collectionData;
   kpiDrillData.outstandingEstimate = outstandingByProject;
   kpiDrillData.inAbeyance = inAbeyanceRows;
-  kpiDrillData.cancellations = filterFull(RAW.cancellationRecords.filter(r=>r.isGenuine), 'bookingDate').map(withSource);
+  kpiDrillData.cancellations = filterFull(RAW.cancellationRecords.filter(r=>r.isGenuine), 'cancellationDate').map(withSource);
   kpiDrillData.unitSwap = unitSwapRecords.map(withSource);
   document.getElementById('kpiGridCollection').innerHTML = [
     {lbl:'Total Collected', key:'collectionTotal', val: fmtINRCr(totalCollected), sub: (periodActive ? 'Received in the selected period' : `${fmtNum(unitsRecorded)} units with collection recorded`) + ', including Govt charges and Registrations'},
@@ -3491,9 +3519,9 @@ function renderCollectionPage(){
     ...(hasOutstandingReport ? [{lbl:'In Abeyance', key:'inAbeyance', val: fmtNum(inAbeyanceRows.length), sub: `${fmtINRCr(inAbeyanceTotal)} outstanding &middot; cancellation pending, not yet finalized`}] : []),
     // Only shown once the Customer Cancellation Report (file 7) is uploaded.
     ...(hasCancellationReport ? [
-      {lbl:'Unit Swap', key:'unitSwap', val: fmtNum(unitSwapCount), sub: `${fmtINRCr(unitSwapValue)} unit value &middot; ReBooking Cancellation (unit transfer), ${cancellationPeriodSub}`},
-      {lbl:'Total Cancellation', key:'cancellations', val: fmtNum(genuineCancelledUnits), sub: `Genuine cancellations &middot; Customer Requested + Due to Non Payment, ${cancellationPeriodSub}`},
-      {lbl:'Total Cancellation Value', key:'cancellations', val: fmtINRCr(genuineCancelledValue), sub: `Cancelled booking value &middot; same units as Total Cancellation, ${cancellationPeriodSub}`},
+      {lbl:'Unit Swap', key:'unitSwap', val: fmtNum(unitSwapCount), sub: `${fmtINRCr(unitSwapValue)} unit value &middot; ReBooking Cancellation (unit transfer), by Cancellation Date, ${cancellationPeriodSub}`},
+      {lbl:'Total Cancellation', key:'cancellations', val: fmtNum(genuineCancelledUnitsByCancelDate), sub: `Genuine cancellations &middot; Customer Requested + Due to Non Payment, by Cancellation Date, ${cancellationPeriodSub}`},
+      {lbl:'Total Cancellation Value', key:'cancellations', val: fmtINRCr(genuineCancelledValueByCancelDate), sub: `Cancelled booking value &middot; same units as Total Cancellation, ${cancellationPeriodSub}`},
     ] : []),
   ].map(c=>`<div class="kpi" data-drill="${c.key}"><div class="lbl">${c.lbl}</div><div class="val num">${c.val}</div><div class="sub">${c.sub}</div></div>`).join('');
   const navy = getComputedStyle(document.documentElement).getPropertyValue('--navy').trim();
@@ -4035,8 +4063,10 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(bookingExport), 'Booking Report');
   }
-  // 8. Customer Cancellation Report (every category, not just the genuine ones the dashboard totals use)
-  const cancellationFiltered = filterFull(RAW.cancellationRecords, 'bookingDate');
+  // 8. Customer Cancellation Report (every category, not just the genuine ones the dashboard totals use).
+  // Filtered by Cancellation Date — matches the "Total Cancellation" tiles above, which also now go by
+  // when the cancellation happened rather than when the unit was originally booked.
+  const cancellationFiltered = filterFull(RAW.cancellationRecords, 'cancellationDate');
   if(cancellationFiltered.length){
     const cancellationExport = cancellationFiltered.map(r=>({
       'Project': r.project, 'Sub Project': r.subProject, 'Unit No': r.unitNo, 'Customer': r.customer,
