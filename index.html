@@ -240,6 +240,11 @@
     color:var(--ink);background:#fff;
   }
   .filter-bar .btn{flex-shrink:0;}
+  .filter-field.date-field{min-width:150px;flex:0 1 160px;}
+  .filter-field input[type=date]{
+    padding:8px 11px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:'Inter',sans-serif;
+    color:var(--ink);background:#fff;width:100%;box-sizing:border-box;
+  }
   /* Multi-select checkbox dropdown (Financial Year / Month) — a button + floating checkbox panel,
      styled to match the plain <select> fields it sits next to. */
   .multiselect{position:relative;}
@@ -513,6 +518,14 @@
           <button type="button" class="multiselect-btn" id="filterMonthBtn" aria-labelledby="filterMonthLabel">All Months</button>
           <div class="multiselect-panel" id="filterMonthPanel"></div>
         </div>
+      </div>
+      <div class="filter-field date-field">
+        <label for="filterDateFrom">From Date</label>
+        <input type="date" id="filterDateFrom">
+      </div>
+      <div class="filter-field date-field">
+        <label for="filterDateTo">To Date</label>
+        <input type="date" id="filterDateTo">
       </div>
       <button class="btn btn-ghost" id="filterClear">Clear filters</button>
       <span class="filter-busy" id="filterBusy" style="display:none;"><span class="spin"></span>Updating...</span>
@@ -1171,7 +1184,7 @@ async function tryLoadPublishedData(){
     RAW = newRAW;
     updateSectionVisibility();
     lastPublished = { at: meta.generatedAt, files: meta.sourceFiles || [] };
-    filterState = { project:[], fy:[], month:[] };
+    filterState = { project:[], fy:[], month:[], dateFrom:'', dateTo:'' };
     populateFilterOptions();
     applyFiltersAndRender();
     updateLastUpdatedBadge();
@@ -1245,7 +1258,7 @@ let RAW = {
 // project/fy/month are all arrays — Project, Financial Year and Month all support selecting more than
 // one value at once (see the multiselect widgets wired near the bottom of the file). An empty array
 // means "All", same as an empty string did before Project became multi-select.
-let filterState = { project: [], fy: [], month: [] };
+let filterState = { project: [], fy: [], month: [], dateFrom: '', dateTo: '' };
 let projectOptionsList = []; // [{value,label}] — current Project checkbox options, rebuilt by populateFilterOptions()
 let fyOptionsList = [];    // [{value,label}] — current Financial Year checkbox options, rebuilt by populateFilterOptions()
 let monthOptionsList = []; // [{value,label}] — current Month checkbox options, rebuilt by populateMonthOptions()
@@ -1405,7 +1418,7 @@ document.getElementById('genBtn').addEventListener('click', async ()=>{
       RAW.cancellationRecords = [];
     }
     updateSectionVisibility();
-    filterState = { project: [], fy: [], month: [] };
+    filterState = { project: [], fy: [], month: [], dateFrom: '', dateTo: '' };
     populateFilterOptions();
     applyFiltersAndRender();
     const fileNames = [file1Data.name, file2Data.name, file3Data && file3Data.name, file4Data && file4Data.name, file5Data && file5Data.name, file6Data && file6Data.name, file7Data && file7Data.name].filter(Boolean);
@@ -2151,12 +2164,30 @@ function matchesProject(rec, project){ return !project || !project.length || pro
 // tables to hide rows with zero activity for the selected period — with no period selected, every
 // project belongs (it may just have zero sales ever); with a period selected, a project showing
 // zero Sold Units for that specific window isn't useful clutter, so those rows are hidden.
-function periodFilterActive(){ return filterState.fy.length>0 || filterState.month.length>0; }
+function dateRangeActive(){ return !!(filterState.dateFrom || filterState.dateTo); }
+function periodFilterActive(){ return filterState.fy.length>0 || filterState.month.length>0 || dateRangeActive(); }
+// Custom From/To date range (inclusive both ends). Compared as yyyymmdd day-numbers using the same
+// local-time getters financialYearOf()/monthKeyOf() use, so a record always lands on the same calendar
+// day here as it does in the FY / Month filters. Either end may be left blank (open-ended range).
+function dayNumOf(d){ return d.getFullYear()*10000 + (d.getMonth()+1)*100 + d.getDate(); }
+function dayNumFromInput(str){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str || '');
+  return m ? (+m[1])*10000 + (+m[2])*100 + (+m[3]) : null;
+}
+function matchesDateRange(rec, dateField){
+  const from = dayNumFromInput(filterState.dateFrom), to = dayNumFromInput(filterState.dateTo);
+  if(from === null && to === null) return true;
+  const d = parseDateAny(rec[dateField]);
+  if(!d) return false;
+  const n = dayNumOf(d);
+  return (from === null || n >= from) && (to === null || n <= to);
+}
 // fy/month are now arrays (multi-select) — matching a record means "belongs to ANY of the selected
 // months" if any months are picked (same month-wins-over-FY precedence as before, since a selected
 // month already implies its own FY), otherwise "belongs to ANY of the selected FYs".
 function matchesDate(rec, dateField, fy, month){
   const hasFY = fy && fy.length, hasMonth = month && month.length;
+  if(!matchesDateRange(rec, dateField)) return false; // custom From/To range narrows on top of any FY / Month pick
   if(!hasFY && !hasMonth) return true;
   const dateVal = rec[dateField];
   if(!dateVal) return false;
@@ -2211,6 +2242,8 @@ function wireMultiSelectToggle(wrapId){
   wrap.querySelector('.multiselect-panel').addEventListener('click', e=> e.stopPropagation());
 }
 function populateFilterOptions(){
+  { const f = document.getElementById('filterDateFrom'), t = document.getElementById('filterDateTo');
+    if(f) f.value = filterState.dateFrom || ''; if(t) t.value = filterState.dateTo || ''; } // keep the date inputs in step with filterState after a fresh upload / reload
   const projects = new Set();
   [RAW.customerRecords, RAW.stockUnitRecords, RAW.agreementRecords, RAW.collectionReceiptRecords, RAW.bookingRecords].forEach(arr=>{
     arr.forEach(r=> r.project && projects.add(r.project));
@@ -2540,6 +2573,11 @@ function renderFilterSummary(){
   } else if(filterState.fy.length){
     filterState.fy.forEach(v=>chips.push(v));
   }
+  if(filterState.dateFrom || filterState.dateTo){
+    const fmt = v => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v); return m ? new Date(+m[1], +m[2]-1, +m[3]).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : v; };
+    chips.push(filterState.dateFrom && filterState.dateTo ? `${fmt(filterState.dateFrom)} to ${fmt(filterState.dateTo)}`
+      : filterState.dateFrom ? `From ${fmt(filterState.dateFrom)}` : `Up to ${fmt(filterState.dateTo)}`);
+  }
   const el = document.getElementById('filterSummary');
   if(!chips.length){ el.style.display='none'; el.innerHTML=''; return; }
   el.style.display='flex';
@@ -2588,15 +2626,27 @@ document.getElementById('filterMonthPanel').addEventListener('change', function(
   updateMultiSelectButtonLabel('filterMonthBtn', monthOptionsList, filterState.month, 'All Months');
   deferHeavyRender(()=> applyFiltersAndRender());
 });
+['filterDateFrom','filterDateTo'].forEach(id=>{
+  document.getElementById(id).addEventListener('change', function(){
+    let from = document.getElementById('filterDateFrom').value, to = document.getElementById('filterDateTo').value;
+    if(from && to && from > to){ const t = from; from = to; to = t; } // picked backwards — swap rather than show an empty dashboard
+    document.getElementById('filterDateFrom').value = from;
+    document.getElementById('filterDateTo').value = to;
+    filterState.dateFrom = from; filterState.dateTo = to;
+    deferHeavyRender(()=> applyFiltersAndRender());
+  });
+});
 document.addEventListener('click', ()=>{
   document.querySelectorAll('.multiselect.open').forEach(w=>w.classList.remove('open'));
 });
 document.getElementById('filterClear').addEventListener('click', function(){
-  filterState = { project:[], fy:[], month:[] };
+  filterState = { project:[], fy:[], month:[], dateFrom:'', dateTo:'' };
   renderMultiSelectOptions('filterProjectPanel', projectOptionsList, filterState.project);
   updateMultiSelectButtonLabel('filterProjectBtn', projectOptionsList, filterState.project, 'All Projects');
   renderMultiSelectOptions('filterFYPanel', fyOptionsList, filterState.fy);
   updateMultiSelectButtonLabel('filterFYBtn', fyOptionsList, filterState.fy, 'All Financial Years');
+  document.getElementById('filterDateFrom').value = '';
+  document.getElementById('filterDateTo').value = '';
   deferHeavyRender(()=>{ populateMonthOptions(); applyFiltersAndRender(); });
 });
 /* ============ FORMATTING ============ */
