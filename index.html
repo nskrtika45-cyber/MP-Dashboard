@@ -1323,6 +1323,7 @@ let collectionPeriodByProject = {};  // same, broken down by project
 // function for where it's populated. Every entry always reflects whatever's currently on screen.
 let soldUnitData = [];
 let availUnitData = [];
+let soldRecsAllTime = []; // Sold unit records, Project-only / full history — behind the "Sold value by financial year" chart's click drill-down
 let holdUnitData = []; // Hold-only unit records, for the "On Hold" tile's own drill-down (availUnitData above is now Available+Hold combined)
 // Enquiry Source / Source Sub Type lookup (Project+SubProject+UnitNo -> {sourceType, sourceSubType}),
 // built fresh in applyFiltersAndRender() from the Customer Details Report and read by withSource()
@@ -2391,7 +2392,8 @@ function applyFiltersAndRender(){
       holdValue, holdValueMSP,                       // raw Hold-only figures for the dedicated "On Hold" tile
     };
   });
-  fyData = aggregateStockValue(filterProjectOnly(soldRecs)).fyData;   // trend chart — Project only, full history
+  soldRecsAllTime = filterProjectOnly(soldRecs);
+  fyData = aggregateStockValue(soldRecsAllTime).fyData;   // trend chart — Project only, full history
   // project-only sold value, independent of FY/Month — used solely by Collection's Outstanding Balance,
   // since Collection's own unit table (Sheet6) has no dates to match a FY/Month filter against.
   soldValueByProjectAllTime = aggregateStockValue(filterProjectOnly(soldRecs)).value;
@@ -4159,8 +4161,12 @@ function openKpiDrill(tileEl, key){
   if(!config) return;
   const lblEl = tileEl.querySelector('.lbl');
   const subEl = tileEl.querySelector('.sub');
-  const title = lblEl ? lblEl.textContent : 'Details';
-  const sub = subEl ? subEl.textContent : '';
+  openDrillModal({ title: lblEl ? lblEl.textContent : 'Details', sub: subEl ? subEl.textContent : '', columns: config.columns, rows: config.rows });
+}
+// Shared by the KPI tiles (openKpiDrill above) and the chart-click drill-down at the bottom of this
+// script, so both show the same table, the same count line and the same Download Excel button.
+function openDrillModal(config){
+  const title = config.title, sub = config.sub || '';
   kpiDrillCurrent = { title, columns: config.columns, rows: config.rows };
   document.getElementById('kpiDrillTitle').textContent = title;
   document.getElementById('kpiDrillSub').textContent = sub;
@@ -4173,7 +4179,7 @@ function openKpiDrill(tileEl, key){
         const display = c.fmt ? c.fmt(v) : (v===null||v===undefined||v===''?'—':v);
         return `<td style="text-align:${c.align||'right'}">${display}</td>`;
       }).join('')+'</tr>').join('')
-    : `<tr><td colspan="${config.columns.length}" class="modal-empty">No records for the current filter.</td></tr>`;
+    : `<tr><td colspan="${config.columns.length}" class="modal-empty">${config.emptyMsg || 'No records for the current filter.'}</td></tr>`;
   document.getElementById('kpiDrillCount').textContent = config.rows.length ? `${config.rows.length.toLocaleString('en-IN')} record${config.rows.length===1?'':'s'}` : '';
   document.getElementById('kpiDrillDownload').disabled = !config.rows.length;
   document.getElementById('kpiDrillOverlay').style.display = 'flex';
@@ -4204,6 +4210,90 @@ document.getElementById('kpiDrillDownload').addEventListener('click', ()=>{
   const fileName = 'MP_Developers_' + (title.replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'_') || 'KPI_Data') + '_' + new Date().toISOString().slice(0,10) + '.xlsx';
   XLSX.writeFile(wb, fileName);
 });
+
+/* ============ CHART CLICK DRILL-DOWN (click a bar / donut slice -> the records behind it) ============ */
+// Every chart on the dashboard opens the same modal the KPI tiles use (openDrillModal), showing the
+// unit-level rows that make up the clicked bar or slice, with the same columns and Download Excel
+// button as the matching tile. Providers read the SAME cached record sets the charts and tiles are
+// built from (soldUnitData, availUnitData, bookingData, agreementData, ...) at click time, so what
+// opens always matches what's on screen for the current Project / FY / Month / Date filters.
+// Keyed by canvas id; each provider gets (label, datasetLabel) of the clicked element.
+const _byProject = (rows, p) => (rows || []).filter(r => r.project === p);
+const _fyLabelOf = d => { const fy = financialYearOf(d); return fy ? fy.label : null; };
+const CHART_DRILL = {
+  chartStockDonut: (label) => {
+    if(label === 'Sold') return { title:'Sold units', columns: KPI_DRILL_COLUMNS.stockUnit, rows: soldUnitData };
+    if(label === 'Available') return { title:'Available units', columns: KPI_DRILL_COLUMNS.stockUnitAvail, rows: availUnitData.filter(r => r.status === 'Available') };
+    if(label === 'Hold') return { title:'Units on hold', columns: KPI_DRILL_COLUMNS.stockUnitAvail, rows: holdUnitData };
+    // Blocked units are counted from the Stock Summary's project-summary sheet; the unit-level sheet
+    // only lists them if the export gives them their own status, so say so plainly when none are listed.
+    return { title:'Blocked units', columns: KPI_DRILL_COLUMNS.stockUnitAvail,
+      rows: filterProjectOnly(RAW.stockUnitRecords.filter(r => /block/i.test(r.status || ''))),
+      emptyMsg: 'Blocked units are counted in the Stock Summary project totals, but the unit-level sheet of the uploaded report does not list them individually.' };
+  },
+  chartSoldAvailArea: (label, ds) => ds === 'Sold'
+    ? { title: label + ' — Sold units', columns: KPI_DRILL_COLUMNS.stockUnit, rows: _byProject(soldUnitData, label) }
+    : { title: label + ' — Unsold units', columns: KPI_DRILL_COLUMNS.stockUnitAvail, rows: _byProject(availUnitData, label) },
+  chartUnsoldLocation: (label) => ({ title: label + ' — Unsold units', columns: KPI_DRILL_COLUMNS.stockUnitAvail, rows: availUnitData.filter(r => getLocation(r.project) === label) }),
+  chartUnsoldProperty: (label) => ({ title: label + ' — Unsold units', columns: KPI_DRILL_COLUMNS.stockUnitAvail, rows: availUnitData.filter(r => getPropertyType(r.project, r.unitType) === label) }),
+  chartUnsoldProject: (label) => ({ title: label + ' — Unsold units', columns: KPI_DRILL_COLUMNS.stockUnitAvail, rows: _byProject(availUnitData, label) }),
+  chartAvailValue: (label) => ({ title: label + ' — Unsold units', columns: KPI_DRILL_COLUMNS.stockUnitAvail, rows: _byProject(availUnitData, label) }),
+  chartAvailArea: (label) => ({ title: label + ' — Unsold units', columns: KPI_DRILL_COLUMNS.stockUnitAvail, rows: _byProject(availUnitData, label) }),
+  chartSoldValue: (label) => ({ title: label + ' — Sold units', columns: KPI_DRILL_COLUMNS.stockUnit, rows: _byProject(soldUnitData, label) }),
+  chartSoldFY: (label) => ({ title: label + ' — Sold units', columns: KPI_DRILL_COLUMNS.stockUnit, rows: soldRecsAllTime.filter(r => _fyLabelOf(r.bookingDate) === label), note: 'full history for the selected project' }),
+  chartStage: (label) => ({ title: label + ' — Agreement Register', columns: KPI_DRILL_COLUMNS.agreement, rows: agreementData.filter(r => r.unitStatus === label) }),
+  chartPendingRegn: (label) => ({ title: label + ' — Pending registration', columns: KPI_DRILL_COLUMNS.agreement, rows: _byProject(agreementData, label).filter(r => r.regnDate === '') }),
+  chartCollection: (label) => ({ title: label + ' — Collections', columns: KPI_DRILL_COLUMNS.collection, rows: _byProject(collectionData, label) }),
+  chartCollectionFY: (label) => ({ title: label + ' — Collections', columns: KPI_DRILL_COLUMNS.collection,
+    rows: aggregateCollectionByUnit(filterProjectOnly(RAW.collectionReceiptRecords).filter(r => _fyLabelOf(r.date) === label)), note: 'full history for the selected project' }),
+  chartOutstanding: (label) => outstandingDrill(label),
+  chartCollectedVsOutstanding: (label, ds) => outstandingDrill(label, ds),
+  chartBookingProject: (label) => ({ title: label + ' — Bookings', columns: KPI_DRILL_COLUMNS.booking, rows: _byProject(bookingData, label) }),
+  chartBookingArea: (label) => ({ title: label + ' — Bookings', columns: KPI_DRILL_COLUMNS.booking, rows: _byProject(bookingData, label) }),
+  chartBookingFY: (label) => ({ title: label + ' — Bookings', columns: KPI_DRILL_COLUMNS.booking, rows: filterProjectOnly(RAW.bookingRecords).filter(r => _fyLabelOf(r.bookingDate) === label), note: 'full history for the selected project' }),
+  chartBookingUnitType: (label) => ({ title: label + ' — Bookings', columns: KPI_DRILL_COLUMNS.booking, rows: bookingData.filter(r => (r.unitType || 'Unspecified') === label) }),
+};
+// Outstanding charts: per-unit Debtor Ageing rows when that report is uploaded (same rows the
+// Outstanding Balance tile lists), otherwise the per-project estimate row the tile falls back to.
+function outstandingDrill(project, datasetLabel){
+  const what = datasetLabel ? datasetLabel : 'Outstanding';
+  if(outstandingData.length) return { title: project + ' — ' + what, columns: KPI_DRILL_COLUMNS.outstanding, rows: _byProject(outstandingData, project) };
+  return { title: project + ' — ' + what + ' (estimated)', columns: KPI_DRILL_COLUMNS.outstandingEstimate, rows: _byProject(kpiDrillData.outstandingEstimate, project) };
+}
+function openChartDrill(chart, index, datasetIndex){
+  const id = chart.canvas.id;
+  const provider = CHART_DRILL[id];
+  if(!provider) return;
+  const label = chart.data.labels ? chart.data.labels[index] : '';
+  const ds = chart.data.datasets[datasetIndex];
+  const cfg = provider(label, ds ? ds.label : '');
+  if(!cfg) return;
+  const card = chart.canvas.closest('.chart-card');
+  const h3 = card && card.querySelector('h3');
+  const from = h3 ? h3.textContent : '';
+  const sub = (from ? 'From chart: ' + from : '') + (cfg.note ? ' · ' + cfg.note : '');
+  openDrillModal({ title: cfg.title, sub, columns: cfg.columns, rows: cfg.rows, emptyMsg: cfg.emptyMsg });
+}
+// One global Chart.js plugin handles clicks for every chart that has a provider above, so none of the
+// ~20 chart definitions needs touching (and charts added later just need a CHART_DRILL entry).
+Chart.register({
+  id: 'drillOnClick',
+  afterEvent(chart, args){
+    const id = chart.canvas && chart.canvas.id;
+    if(!id || !CHART_DRILL[id]) return;
+    const e = args.event;
+    if(!e || !e.native) { if(e && e.type === 'mouseout') chart.canvas.style.cursor = 'default'; return; }
+    if(e.type !== 'click' && e.type !== 'mousemove') return;
+    const els = chart.getElementsAtEventForMode(e.native, 'nearest', { intersect: true }, false);
+    if(e.type === 'mousemove'){ chart.canvas.style.cursor = els.length ? 'pointer' : 'default'; return; }
+    if(!els.length) return;
+    openChartDrill(chart, els[0].index, els[0].datasetIndex);
+  }
+});
+// Tooltip hint on every drillable chart; charts that define their own tooltip `label` callback keep it.
+Chart.defaults.plugins.tooltip.callbacks.footer = function(items){
+  return (items && items[0] && CHART_DRILL[items[0].chart.canvas.id]) ? 'Click to view records' : '';
+};
 </script>
 </div>
 </body>
